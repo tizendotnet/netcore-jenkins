@@ -62,7 +62,7 @@ def static setCLRJob(def job) {
   def dockerCommand = Utilities.getDockerCommand()
   job.with {
     steps {
-      shell("${dockerCommand} ./build.sh cross \${TARGET_ARCH} \${CONFIG} cmakeargs -DFEATURE_GDBJIT=TRUE stripSymbols -OfficialBuildId=\${DOTNET_BUILD_ID}")
+      shell("${dockerCommand} ./build.sh cross \${TARGET_ARCH} \${CONFIG} cmakeargs -DFEATURE_GDBJIT=TRUE stripSymbols -OfficialBuildId=\${DOTNET_BUILD_ID} -- /p:Authors=Tizen")
       shell('mkdir output && find ./bin/Product/Linux.${TARGET_ARCH}.${CONFIG}/.nuget/ -iname "*.nupkg" -exec cp {} output \\;')
     }
     publishers {
@@ -80,7 +80,7 @@ def static setFXJob(def job) {
   job.with {
     steps {
       shell("${dockerCommand} ./build.sh -\${CONFIG} -buildArch=\${TARGET_ARCH} -RuntimeOS=tizen.4.0.0 -OfficialBuildId=\${DOTNET_BUILD_ID} -- /p:BinPlaceNETCoreAppPackage=true /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json")
-      shell("${dockerCommand} ./build-packages.sh -\${CONFIG} -ArchGroup=\${TARGET_ARCH} -RuntimeOS=tizen.4.0.0")
+      shell("${dockerCommand} ./build-packages.sh -\${CONFIG} -ArchGroup=\${TARGET_ARCH} -RuntimeOS=tizen.4.0.0 -- /p:Authors=Tizen")
       shell('mkdir output && find ./bin/packages/${CONFIG} -iname "*.nupkg" -exec cp {} output \\;')
     }
     publishers {
@@ -97,7 +97,7 @@ def static setSetupJob(def job) {
   def dockerCommand = Utilities.getDockerCommand()
   job.with {
     steps {
-      shell("${dockerCommand} ./build.sh -ConfigurationGroup=\${CONFIG} -TargetArchitecture=\${TARGET_ARCH} -DistroRid=tizen.4.0.0-\${TARGET_ARCH} -SkipTests=true -DisableCrossgen=true -CrossBuild=true -OfficialBuildId=\${DOTNET_BUILD_ID} -- /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json")
+      shell("${dockerCommand} ./build.sh -ConfigurationGroup=\${CONFIG} -TargetArchitecture=\${TARGET_ARCH} -DistroRid=tizen.4.0.0-\${TARGET_ARCH} -SkipTests=true -DisableCrossgen=true -CrossBuild=true -OfficialBuildId=\${DOTNET_BUILD_ID} -- /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json /p:Authors=Tizen")
       shell('mkdir output && find ./Bin/tizen.4.0.0-${TARGET_ARCH}.${CONFIG}/packages \\( -iname "*.nupkg" -or -iname "*.tar.gz" \\) -exec cp {} output \\;')
     }
     publishers {
