@@ -70,7 +70,6 @@ def static setCLRJob(def job) {
         pattern('output/*.nupkg')
         onlyIfSuccessful()
       }
-      downstream('dotnet/upload-coreclr')
     }
   }
 }
@@ -88,7 +87,6 @@ def static setFXJob(def job) {
         pattern('output/*.nupkg')
         onlyIfSuccessful()
       }
-      downstream('dotnet/upload-corefx')
     }
   }
 }
@@ -106,7 +104,6 @@ def static setSetupJob(def job) {
         pattern('output/*.tar.gz')
         onlyIfSuccessful()
       }
-      downstream('dotnet/upload-core-setup')
     }
   }
 }
@@ -140,6 +137,12 @@ def static setSetupJob(def job) {
     setFXJob(newJob)
   } else if (name.equals('core-setup')) {
     setSetupJob(newJob)
+  }
+
+  newJob.with {
+    publishers {
+      downstream("dotnet/upload-${name}")
+    }
   }
 }
 
@@ -175,7 +178,7 @@ done
       preBuildCleanup()
     }
     parameters {
-      stringParam('NUGET_API_KEY', '')
+      stringParam('NUGET_API_KEY', "${NUGET_API_KEY}")
     }
     steps {
       copyArtifacts("dotnet/${name}") {
