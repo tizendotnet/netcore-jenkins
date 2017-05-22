@@ -62,7 +62,7 @@ def static setCLRJob(def job) {
   def dockerCommand = Utilities.getDockerCommand()
   job.with {
     steps {
-      shell("${dockerCommand} ./build.sh cross \${TARGET_ARCH} \${CONFIG} stripSymbols -OfficialBuildId=\${DOTNET_BUILD_ID} -- /p:Authors=Tizen")
+      shell("${dockerCommand} ./build.sh cross \${TARGET_ARCH} \${CONFIG} cmakeargs -DFEATURE_GDBJIT=TRUE stripSymbols -OfficialBuildId=\${DOTNET_BUILD_ID} -- /p:Authors=Tizen")
       shell('mkdir output && find ./bin/Product/Linux.${TARGET_ARCH}.${CONFIG}/.nuget/ -iname "*.nupkg" -exec cp {} output \\;')
     }
     publishers {
