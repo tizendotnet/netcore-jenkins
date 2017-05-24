@@ -3,6 +3,27 @@
 project=$1; shift
 branch=$1; shift
 
+convert_builddate()
+{
+    local _version=$1; shift
+
+    IFS=- read -r branch date count <<< ${_version}
+    local month=${date::(-2)}
+    local day=${date:(-2)}
+
+    # The most significant digits represents the month count since April 1996.
+    # In the example above 249 represents Jan 2017.
+    local byear=2017
+    local bmonth=249
+
+    local diff=$(( ${month} - ${bmonth} ))
+    local diff_year=$(( ${diff} / 12 ))
+    local diff_month=$(( ${diff} % 12 ))
+
+    builddate="$(( ${byear} + ${diff_year} ))$( printf "%02d" $(( ${diff_month} + 1 )) )${day}-${count}"
+    echo ${builddate}
+}
+
 mkdir -p "${project}/${branch}"
 
 cur_version=$( cat "dotnet-versions/build-info/dotnet/${project}/${branch}/Latest.txt" )
@@ -63,6 +84,7 @@ chmod +r ${temp_dir}/version.txt
 echo "Version is changed"
 echo "${cur_version}" > "${project}/${branch}/Latest"
 echo "$( cat "${temp_dir}/version.txt" 2> /dev/null )" > "${project}/${branch}/Commit"
+convert_builddate "${cur_version}" > "${project}/${branch}/BuildId"
 
 rm -rf ${temp_dir}
 rm -rf ${nupkg_name}
