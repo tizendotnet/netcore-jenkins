@@ -45,18 +45,22 @@ if [ "${version}" == "${cur_version}" ]; then
     exit 1
 fi
 
-pkglist=( "coreclr:Microsoft.NETCore.Runtime.CoreCLR"
-          "corefx:Microsoft.Private.CoreFx.NETCoreApp"
+pkglist=( "coreclr:Microsoft.NETCore.Runtime.CoreCLR:version.txt"
+          "corefx:Microsoft.Private.CoreFx.NETCoreApp:version.txt"
+          "core-setup:Microsoft.NETCore.App:Microsoft.NETCore.App.versions.txt"
         )
 versionlist=( "coreclr:master:2.1.0"
               "coreclr:release/2.0.0:2.0.0"
               "corefx:master:4.5.0"
               "corefx:release/2.0.0:4.4.0"
+              "core-setup:master:2.1.0"
+              "core-setup:release/2.0.0:2.0.0"
             )
 
-for pkg in ${pkglist[@]}; do
-    if [ "${pkg%%:*}" == "${project}" ]; then
-        pkgname=${pkg##*:}
+for list in ${pkglist[@]}; do
+    IFS=: read -r pkg pkgname version_file <<< ${list}
+    if [ "${pkg}" == "${project}" ]; then
+        break
     fi
 done
 
@@ -89,11 +93,21 @@ if ! [[ $? == 0 ]]; then
     echo "ERROR: Wrong ${nupkg_name} file"
     exit 1
 fi
-chmod +r ${temp_dir}/version.txt
+chmod +r ${temp_dir}/${version_file}
+
+if [ "${project}" == "core-setup" ]; then
+    while read line; do
+        if [[ "${line}" =~ "core-setup" ]]; then
+            commit=${line##* }
+        fi
+    done < "${temp_dir}/${version_file}"
+else
+    commit=$( cat "${temp_dir}/${version_file}" )
+fi
 
 echo "Version is changed (${version} -> ${cur_version})"
 echo "version=${cur_version}" > "${prop_file}"
-echo "sha1=$( cat "${temp_dir}/version.txt" 2> /dev/null )" >> "${prop_file}"
+echo "sha1=${commit}" >> "${prop_file}"
 echo "buildid=$( convert_builddate "${cur_version}" )" >> "${prop_file}"
 
 rm -rf ${temp_dir}
