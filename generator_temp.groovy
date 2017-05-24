@@ -95,7 +95,7 @@ def static setSetupJob(def job) {
   def dockerCommand = Utilities.getDockerCommand()
   job.with {
     steps {
-      shell("${dockerCommand} ./build.sh -ConfigurationGroup=\${CONFIG} -TargetArchitecture=\${TARGET_ARCH} -DistroRid=tizen.4.0.0-\${TARGET_ARCH} -SkipTests=true -DisableCrossgen=true -CrossBuild=true -OfficialBuildId=\${DOTNET_BUILD_ID} -- /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json /p:Authors=Tizen")
+      shell("${dockerCommand} ./build.sh -ConfigurationGroup=\${CONFIG} -TargetArchitecture=\${TARGET_ARCH} -DistroRid=tizen.4.0.0-\${TARGET_ARCH} -SkipTests=true -DisableCrossgen=true -PortableBuild=false -CrossBuild=true -OfficialBuildId=\${DOTNET_BUILD_ID} -- /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json /p:Authors=Tizen")
       shell('mkdir output && find ./Bin/tizen.4.0.0-${TARGET_ARCH}.${CONFIG}/packages \\( -iname "*.nupkg" -or -iname "*.tar.gz" \\) -exec cp {} output \\;')
     }
     publishers {
