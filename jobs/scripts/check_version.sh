@@ -24,13 +24,24 @@ convert_builddate()
     echo ${builddate}
 }
 
-mkdir -p "${project}/${branch}"
+prop_dir="${project}/${branch}"
+prop_file="${prop_dir}/build_dev.properties"
+
+if [ -d "${prop_dir}" ]; then
+    if [ -f "${prop_file}" ]; then
+        source ${prop_file}
+    else
+        echo "No ${prop_file} file to apply."
+    fi
+else
+    mkdir -p "${project}/${branch}"
+fi
+
 
 cur_version=$( cat "dotnet-versions/build-info/dotnet/${project}/${branch}/Latest.txt" )
-saved_version=$( cat "${project}/${branch}/Latest" 2> /dev/null )
 
-if [  "${saved_version}" == "${cur_version}" ]; then
-    echo "Version is not changed"
+if [ "${version}" == "${cur_version}" ]; then
+    echo "Version is not changed (${version})"
     exit 1
 fi
 
@@ -50,9 +61,9 @@ for pkg in ${pkglist[@]}; do
 done
 
 for list in ${versionlist[@]}; do
-    IFS=: read -r pkg br version <<< ${list}
+    IFS=: read -r pkg br major_version <<< ${list}
     if [ "${pkg}" == "${project}" ] && [ "${br}" == "${branch}" ]; then
-        fullversion="${version}-${cur_version}"
+        fullversion="${major_version}-${cur_version}"
     fi
 done
 
@@ -68,23 +79,22 @@ for feed in ${feedlist[@]}; do
     fi
 done
 
-if [ ! -f ${nupkg_name} ]; then
-    echo "ERROR: Fail to download ${nupkg_name}"
-    exit 1
-fi
-
 temp_dir="tmp"
 if [ -d ${temp_dir} ]; then
     rm -rf ${temp_dir}
 fi
 mkdir -p "${temp_dir}"
 unzip -q ${nupkg_name} -d ${temp_dir}
+if ! [[ $? == 0 ]]; then
+    echo "ERROR: Wrong ${nupkg_name} file"
+    exit 1
+fi
 chmod +r ${temp_dir}/version.txt
 
-echo "Version is changed"
-echo "${cur_version}" > "${project}/${branch}/Latest"
-echo "$( cat "${temp_dir}/version.txt" 2> /dev/null )" > "${project}/${branch}/Commit"
-convert_builddate "${cur_version}" > "${project}/${branch}/BuildId"
+echo "Version is changed (${version} -> ${cur_version})"
+echo "version=${cur_version}" > "${prop_file}"
+echo "sha1=$( cat "${temp_dir}/version.txt" 2> /dev/null )" >> "${prop_file}"
+echo "buildid=$( convert_builddate "${cur_version}" )" >> "${prop_file}"
 
 rm -rf ${temp_dir}
 rm -rf ${nupkg_name}
