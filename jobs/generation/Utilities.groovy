@@ -86,6 +86,7 @@ class Utilities {
         archiveArtifacts {
           if (project == 'coreclr') {
             pattern(projectDir + 'bin/Product/Linux.\${targetArch}.\${config}/.nuget/pkg/*.nupkg')
+            pattern(projectDir + 'bin/Product/Linux.\${targetArch}.\${config}/.nuget/symbolpkg/*.nupkg')
           } else if (project == 'corefx') {
             pattern(projectDir + 'bin/packages/\${config}/*.nupkg')
           } else if (project == 'core-setup') {
