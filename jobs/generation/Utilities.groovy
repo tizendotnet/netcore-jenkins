@@ -139,4 +139,20 @@ class Utilities {
     }
   }
 
+  /**
+   * Add a retention policy for artifacts.
+   *
+   * @param job Job to modify
+   */
+  def static addRetentionPolicy(def job) {
+    job.with {
+      logRotator {
+        artifactDaysToKeep(10)
+        daysToKeep(21)
+        artifactNumToKeep(50)
+        numToKeep(100)
+      }
+    }
+  }
+
 }

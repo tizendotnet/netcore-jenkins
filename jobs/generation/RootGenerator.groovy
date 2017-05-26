@@ -90,10 +90,6 @@ projectLoop.each { projectName ->
     def projectDir = "dotnet_${projectName}"
     def fullJobName = Utilities.getProjectName(projectName, branchName, targetArch, config)
     def newJob = job('release/' + fullJobName) {
-      logRotator {
-        daysToKeep(7)
-      }
-
       multiscm {
         git {
           remote {
@@ -134,6 +130,8 @@ projectLoop.each { projectName ->
       }
     }
 
+    // Set retention policy
+    Utilities.addRetentionPolicy(newJob)
     // Set a build steps
     Utilities.addBuildSteps(newJob, projectName, projectDir)
     // Upload packages to the predefined myget server
