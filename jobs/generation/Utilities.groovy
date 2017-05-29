@@ -65,6 +65,12 @@ class Utilities {
         } else if (project == 'core-setup') {
           shell("${dockerCommand} ./build.sh -ConfigurationGroup=\${config} -TargetArchitecture=\${targetArch} -DistroRid=tizen.4.0.0-\${targetArch} -SkipTests=true -DisableCrossgen=true -PortableBuild=false -CrossBuild=true -OfficialBuildId=\${buildid} -- /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json /p:Authors=Tizen")
         }
+        // Change ownership to UID of the projectDir
+        // Building with docker, it will be created as root with the file it downloaded
+        // or generated during the build process. In this case, when jenkins remove workspace,
+        // it can not access root permission files, so it can not be removed normally.
+        // This issue causes the disk size to become insufficient.
+        shell("${dockerCommand} chown \$( id -u \${USER} ):\$( id -u \${USER} ) . -R")
       }
     }
   }
@@ -154,5 +160,4 @@ class Utilities {
       }
     }
   }
-
 }
