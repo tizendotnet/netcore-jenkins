@@ -16,7 +16,7 @@ class Utilities {
   /**
    * Get the project name for a job.
    *
-   * @param project Project name (e.g. dotnet/coreclr)
+   * @param project Project name (e.g. coreclr)
    * @param branch Branch name (e.g. master)
    * @param targetArch Target architecture name (e.g. armel)
    * @param config Build configuration (e.g. release)

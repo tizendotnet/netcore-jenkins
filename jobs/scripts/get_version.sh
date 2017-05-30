@@ -1,7 +1,8 @@
 #!/bin/bash
 
 project=$1; shift
-branch=$1; shift
+version=$1; shift
+minor_version=$1; shift
 
 convert_builddate()
 {
@@ -16,46 +17,23 @@ convert_builddate()
     local byear=2017
     local bmonth=249
 
-    local diff=$(( ${month} - ${bmonth} ))
-    local diff_year=$(( ${diff} / 12 ))
-    local diff_month=$(( ${diff} % 12 ))
+    if (( month >= bmonth )); then
+        local diff=$(( ${month} - ${bmonth} ))
+        local diff_year=$(( ${diff} / 12 ))
+        local diff_month=$(( ${diff} % 12 ))
 
-    builddate="$(( ${byear} + ${diff_year} ))$( printf "%02d" $(( ${diff_month} + 1 )) )${day}-${count}"
+        builddate="$(( ${byear} + ${diff_year} ))$( printf "%02d" $(( ${diff_month} + 1 )) )${day}-${count}"
+    else
+        builddate="${date}-${count}"
+    fi
+
     echo ${builddate}
 }
-
-prop_dir="${project}/${branch}"
-prop_file="${prop_dir}/build_dev.properties"
-
-if [ -d "${prop_dir}" ]; then
-    if [ -f "${prop_file}" ]; then
-        source ${prop_file}
-    else
-        echo "No ${prop_file} file to apply."
-    fi
-else
-    mkdir -p "${project}/${branch}"
-fi
-
-
-cur_version=$( cat "dotnet-versions/build-info/dotnet/${project}/${branch}/Latest.txt" )
-
-if [ "${version}" == "${cur_version}" ]; then
-    echo "Version is not changed (${version})"
-    exit 1
-fi
 
 pkglist=( "coreclr:Microsoft.NETCore.Runtime.CoreCLR:version.txt"
           "corefx:Microsoft.NETCore.Platforms:version.txt"
           "core-setup:Microsoft.NETCore.App:Microsoft.NETCore.App.versions.txt"
         )
-versionlist=( "coreclr:master:2.1.0"
-              "coreclr:release/2.0.0:2.0.0"
-              "corefx:master:4.5.0"
-              "corefx:release/2.0.0:4.4.0"
-              "core-setup:master:2.1.0"
-              "core-setup:release/2.0.0:2.0.0"
-            )
 
 for list in ${pkglist[@]}; do
     IFS=: read -r pkg pkgname version_file <<< ${list}
@@ -64,15 +42,9 @@ for list in ${pkglist[@]}; do
     fi
 done
 
-for list in ${versionlist[@]}; do
-    IFS=: read -r pkg br major_version <<< ${list}
-    if [ "${pkg}" == "${project}" ] && [ "${br}" == "${branch}" ]; then
-        fullversion="${major_version}-${cur_version}"
-    fi
-done
-
+fullversion="${version}-${minor_version}"
 nupkg_name="${pkgname}.${fullversion}.nupkg"
-feedlist=( "https://www.nuget.org/packages"
+feedlist=( "https://www.nuget.org/api/v2/package"
            "https://dotnet.myget.org/F/dotnet-core/api/v2/package"
          )
 
@@ -105,10 +77,18 @@ else
     commit=$( cat "${temp_dir}/${version_file}" )
 fi
 
-echo "Version is changed (${version} -> ${cur_version})"
-echo "version=${cur_version}" > "${prop_file}"
+prop_dir="${project}/${version}/${minor_version}"
+prop_file="${prop_dir}/build_dev.properties"
+
+if [ -d "${prop_dir}" ]; then
+    rm -rf "${prop_dir}"
+fi
+mkdir -p "${prop_dir}"
+
+echo "version=${version}" >> "${prop_file}"
+echo "minor_version=${minor_version}" >> "${prop_file}"
 echo "sha1=${commit}" >> "${prop_file}"
-echo "buildid=$( convert_builddate "${cur_version}" )" >> "${prop_file}"
+echo "buildid=$( convert_builddate "${minor_version}" )" >> "${prop_file}"
 
 rm -rf ${temp_dir}
 rm -rf ${nupkg_name}
