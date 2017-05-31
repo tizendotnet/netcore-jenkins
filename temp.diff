@@ -1,0 +1,32 @@
+diff --git a/NuGet.Config b/NuGet.Config
+index c58c246..57697cd 100644
+--- a/NuGet.Config
++++ b/NuGet.Config
+@@ -7,6 +7,7 @@
+     <add key="cli-deps" value="https://dotnet.myget.org/F/cli-deps/api/v3/index.json" />
+     <add key="api.nuget.org" value="https://api.nuget.org/v3/index.json" />
+     <add key="corefxlab" value="https://dotnet.myget.org/F/dotnet-corefxlab/api/v3/index.json" />
++    <add key="tizen-dotnet-core" value="https://tizen.myget.org/F/dotnet-core/api/v3/index.json" />
+   </packageSources>
+   <disabledPackageSources>
+     <clear />
+diff --git a/cross/armel/tizen-fetch.sh b/cross/armel/tizen-fetch.sh
+index 1252199..cfc0903 100755
+--- a/cross/armel/tizen-fetch.sh
++++ b/cross/armel/tizen-fetch.sh
+@@ -81,7 +81,14 @@ fetch_tizen_pkgs_init()
+ 	if [ -d $TMP_PKG_DIR ]; then rm -rf $TMP_PKG_DIR; fi
+ 	mkdir -p $TMP_PKG_DIR
+ 
+-	PKG_URL=$TIZEN_URL/$PROFILE/latest
++	LATEST=""
++	if [ "${PROFILE}" == "base" ]; then
++	    LATEST="tizen-base_20161016.1"
++        else
++            LATEST="tizen-mobile_20161020.1"
++        fi
++
++	PKG_URL=$TIZEN_URL/$PROFILE/${LATEST}
+ 
+ 	BUILD_XML_URL=$PKG_URL/$BUILD_XML
+ 	TMP_BUILD=$TMP_PKG_DIR/$BUILD_XML
