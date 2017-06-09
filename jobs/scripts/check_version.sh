@@ -46,7 +46,7 @@ if [ "${version}" == "${cur_version}" ]; then
 fi
 
 pkglist=( "coreclr:Microsoft.NETCore.Runtime.CoreCLR:version.txt"
-          "corefx:Microsoft.NETCore.Platforms:version.txt"
+          "corefx:Microsoft.Private.CoreFx.NETCoreApp:version.txt"
           "core-setup:Microsoft.NETCore.App:Microsoft.NETCore.App.versions.txt"
         )
 versionlist=( "coreclr:master:2.1.0"
@@ -91,6 +91,8 @@ mkdir -p "${temp_dir}"
 unzip -q ${nupkg_name} -d ${temp_dir}
 if ! [[ $? == 0 ]]; then
     echo "ERROR: Wrong ${nupkg_name} file"
+    rm -rf ${temp_dir}
+    rm -rf ${nupkg_name}
     exit 1
 fi
 chmod +r ${temp_dir}/${version_file}
