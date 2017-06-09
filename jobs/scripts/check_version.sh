@@ -72,7 +72,7 @@ for list in ${versionlist[@]}; do
 done
 
 nupkg_name="${pkgname}.${fullversion}.nupkg"
-feedlist=( "https://www.nuget.org/packages"
+feedlist=( "https://www.nuget.org/api/v2/package"
            "https://dotnet.myget.org/F/dotnet-core/api/v2/package"
          )
 
