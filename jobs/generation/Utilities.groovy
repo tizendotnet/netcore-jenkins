@@ -160,4 +160,18 @@ class Utilities {
       }
     }
   }
+
+  /**
+   * Set email notifications for unstable builds.
+   *
+   * @param job Job to modify
+   * @param recipients Recipients to receive
+   */
+  def static setEmailNotification(def job, String recipients) {
+    job.with {
+      publishers {
+        mailer(recipients, false, false)
+      }
+    }
+  }
 }

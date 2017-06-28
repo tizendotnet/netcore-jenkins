@@ -139,5 +139,7 @@ projectLoop.each { projectName ->
     Utilities.addUploadSteps(newJob, nugetMap, projectName, projectDir)
     // Archive results
     Utilities.addArchival(newJob, projectName, projectDir)
+    // Set email notifications for unstable builds
+    Utilities.setEmailNotification(newJob, "${EMAIL}")
   }
 }
