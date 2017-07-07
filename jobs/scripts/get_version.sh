@@ -3,6 +3,7 @@
 project=$1; shift
 version=$1; shift
 minor_version=$1; shift
+patch=$1; shift
 
 convert_builddate()
 {
@@ -89,6 +90,7 @@ echo "version=${version}" >> "${prop_file}"
 echo "minor_version=${minor_version}" >> "${prop_file}"
 echo "sha1=${commit}" >> "${prop_file}"
 echo "buildid=$( convert_builddate "${minor_version}" )" >> "${prop_file}"
+echo "patch=${patch}" >> "${prop_file}"
 
 rm -rf ${temp_dir}
 rm -rf ${nupkg_name}

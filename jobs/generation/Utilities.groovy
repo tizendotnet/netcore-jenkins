@@ -174,4 +174,19 @@ class Utilities {
       }
     }
   }
+
+  /**
+   * Apply patch.
+   *
+   * @param job Job to apply patch
+   * @param patch Patch to apply
+   * @param projectDir (optional) Project directory to build
+   */
+  def static applyPatch(def job, String patch, String projectDir = "") {
+    job.with {
+      steps {
+        shell("if [ -f ${patch} ]; then git -C \${WORKSPACE}/${projectDir} apply \${WORKSPACE}/${patch}; fi")
+      }
+    }
+  }
 }

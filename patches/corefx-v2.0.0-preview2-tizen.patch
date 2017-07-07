@@ -1,0 +1,150 @@
+diff --git a/cross/armel/tryrun.cmake b/cross/armel/tryrun.cmake
+index aeaf7de..b979a93 100644
+--- a/cross/armel/tryrun.cmake
++++ b/cross/armel/tryrun.cmake
+@@ -1,5 +1,5 @@
+ SET( HAVE_SHM_OPEN_THAT_WORKS_WELL_ENOUGH_WITH_MMAP_EXITCODE
+-     0
++     1
+      CACHE STRING "Result from TRY_RUN" FORCE)
+ SET( HAVE_CLOCK_MONOTONIC_EXITCODE
+      0
+diff --git a/src/Common/tests/System/PlatformDetection.cs b/src/Common/tests/System/PlatformDetection.cs
+index ec1c457..701cc3c 100644
+--- a/src/Common/tests/System/PlatformDetection.cs
++++ b/src/Common/tests/System/PlatformDetection.cs
+@@ -189,6 +189,7 @@ namespace System
+         public static bool IsDebian8 => IsDistroAndVersion("debian", "8");
+         public static bool IsUbuntu1404 => IsDistroAndVersion("ubuntu", "14.04");
+         public static bool IsCentos7 => IsDistroAndVersion("centos", "7");
++        public static bool IsTizen => IsDistroAndVersion("tizen");
+ 
+         /// <summary>
+         /// Get whether the OS platform matches the given Linux distro and optional version.
+diff --git a/src/System.Globalization/tests/NumberFormatInfo/NumberFormatInfoData.cs b/src/System.Globalization/tests/NumberFormatInfo/NumberFormatInfoData.cs
+index 7d0e383..de89807 100644
+--- a/src/System.Globalization/tests/NumberFormatInfo/NumberFormatInfoData.cs
++++ b/src/System.Globalization/tests/NumberFormatInfo/NumberFormatInfoData.cs
+@@ -17,6 +17,7 @@ namespace System.Globalization.Tests
+                 || (PlatformDetection.IsUbuntu && !PlatformDetection.IsUbuntu1404)
+                 || PlatformDetection.IsFedora
+                 || (PlatformDetection.IsDebian && !PlatformDetection.IsDebian8)
++                || PlatformDetection.IsTizen
+                )
+             {
+                 return new int[] { 3 };
+diff --git a/src/System.Net.Http/src/System/Net/Http/Unix/CurlHandler.EasyRequest.cs b/src/System.Net.Http/src/System/Net/Http/Unix/CurlHandler.EasyRequest.cs
+index 6b3dc18..3b03854 100644
+--- a/src/System.Net.Http/src/System/Net/Http/Unix/CurlHandler.EasyRequest.cs
++++ b/src/System.Net.Http/src/System/Net/Http/Unix/CurlHandler.EasyRequest.cs
+@@ -310,7 +310,7 @@ namespace System.Net.Http
+             private void SetTimeouts()
+             {
+                 // Set timeout limit on the connect phase.
+-                SetCurlOption(CURLoption.CURLOPT_CONNECTTIMEOUT_MS, int.MaxValue);
++                SetCurlOption(CURLoption.CURLOPT_CONNECTTIMEOUT_MS, int.MaxValue / 2);
+ 
+                 // Override the default DNS cache timeout.  libcurl defaults to a 1 minute
+                 // timeout, but we extend that to match the Windows timeout of 10 minutes.
+diff --git a/src/System.Net.Ping/src/System.Net.Ping.csproj b/src/System.Net.Ping/src/System.Net.Ping.csproj
+index 4dc8b2c..3cb947b 100644
+--- a/src/System.Net.Ping/src/System.Net.Ping.csproj
++++ b/src/System.Net.Ping/src/System.Net.Ping.csproj
+@@ -153,4 +153,4 @@
+     <Reference Include="System.IO.FileSystem" />
+   </ItemGroup>
+   <Import Project="$([MSBuild]::GetDirectoryNameOfFileAbove($(MSBuildThisFileDirectory), dir.targets))\dir.targets" />
+-</Project>
+\ No newline at end of file
++</Project>
+diff --git a/src/System.Net.Ping/src/System/Net/NetworkInformation/Ping.Unix.cs b/src/System.Net.Ping/src/System/Net/NetworkInformation/Ping.Unix.cs
+index b2b3772..87ebdb0 100644
+--- a/src/System.Net.Ping/src/System/Net/NetworkInformation/Ping.Unix.cs
++++ b/src/System.Net.Ping/src/System/Net/NetworkInformation/Ping.Unix.cs
+@@ -16,7 +16,8 @@ namespace System.Net.NetworkInformation
+     public partial class Ping
+     {
+         private const int IcmpHeaderLengthInBytes = 8;
+-        private const int IpHeaderLengthInBytes = 20;
++        private const int MinIpHeaderLengthInBytes = 20;
++        private const int MaxIpHeaderLengthInBytes = 60;
+         [ThreadStatic]
+         private static Random t_idGenerator;
+ 
+@@ -69,9 +70,9 @@ namespace System.Net.NetworkInformation
+                 socket.SendTimeout = timeout;
+                 // Setting Socket.DontFragment and .Ttl is not supported on Unix, so ignore the PingOptions parameter.
+ 
+-                int ipHeaderLength = isIpv4 ? IpHeaderLengthInBytes : 0;
++                int ipHeaderLength = isIpv4 ? MinIpHeaderLengthInBytes : 0;
+                 await socket.SendToAsync(new ArraySegment<byte>(sendBuffer), SocketFlags.None, endPoint).ConfigureAwait(false);
+-                byte[] receiveBuffer = new byte[ipHeaderLength + IcmpHeaderLengthInBytes + buffer.Length];
++                byte[] receiveBuffer = new byte[MaxIpHeaderLengthInBytes + IcmpHeaderLengthInBytes + buffer.Length];
+ 
+                 long elapsed;
+                 Stopwatch sw = Stopwatch.StartNew();
+@@ -105,6 +106,17 @@ namespace System.Net.NetworkInformation
+                     {
+                         fixed (byte* bytesPtr = &receiveBuffer[0])
+                         {
++                            if (isIpv4)
++                            {
++                                // Determine actual size of IP header
++                                byte ihl = (byte)(bytesPtr[0] & 0x0f); // Internet Header Length
++                                ipHeaderLength = 4 * ihl;
++                                if (bytesReceived - ipHeaderLength < IcmpHeaderLengthInBytes)
++                                {
++                                    continue; // Not enough bytes to reconstruct actual IP header + ICMP header.
++                                }
++                            }
++
+                             int icmpHeaderOffset = ipHeaderLength;
+                             IcmpHeader receivedHeader = *((IcmpHeader*)(bytesPtr + icmpHeaderOffset)); // Skip IP header.
+                             type = receivedHeader.Type;
+diff --git a/src/System.Net.Security/tests/FunctionalTests/NegotiateStreamTestForUnix.cs b/src/System.Net.Security/tests/FunctionalTests/NegotiateStreamTestForUnix.cs
+index 3bd731e..71c9ab2 100644
+--- a/src/System.Net.Security/tests/FunctionalTests/NegotiateStreamTestForUnix.cs
++++ b/src/System.Net.Security/tests/FunctionalTests/NegotiateStreamTestForUnix.cs
+@@ -109,10 +109,19 @@ namespace System.Net.Security.Tests
+             // the program to be run
+             startInfo.FileName = SudoCommand;
+             startInfo.Arguments = string.Format("bash {0} {1}", ScriptName, args);
+-            using (Process kdcSetup = Process.Start(startInfo))
++
++            try
++            {
++                using (Process kdcSetup = Process.Start(startInfo))
++                {
++                    kdcSetup.WaitForExit();
++                    return kdcSetup.ExitCode;
++                }
++            }
++            catch
+             {
+-                kdcSetup.WaitForExit();
+-                return kdcSetup.ExitCode;
++                // Could not find the file
++                return 1;
+             }
+         }
+     }
+diff --git a/src/System.Net.Security/tests/Scripts/Unix/setup-kdc.sh b/src/System.Net.Security/tests/Scripts/Unix/setup-kdc.sh
+index c550416..3fe002a 100644
+--- a/src/System.Net.Security/tests/Scripts/Unix/setup-kdc.sh
++++ b/src/System.Net.Security/tests/Scripts/Unix/setup-kdc.sh
+@@ -66,6 +66,7 @@ clean_up()
+             ;;
+         *)
+             echo "This is an unsupported operating system"
++            exit 1
+             ;;
+     esac
+ 
+@@ -288,6 +289,7 @@ case ${OS} in
+          ;;
+     *)
+         echo "This is an unsupported operating system"
++        exit 1
+         ;;
+ esac
+ 

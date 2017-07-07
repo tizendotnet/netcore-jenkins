@@ -18,17 +18,18 @@ job('generator/official_poll') {
       remote {
         github('jyoungyun/netcore-jenkins')
       }
-      branch('*/test')
+      branch('*/master')
     }
   }
 
   parameters {
     stringParam('coreclr_version', '2.0.0')
-    stringParam('coreclr_minor_version', 'preview1-25301-02')
+    stringParam('coreclr_minor_version', 'preview2-25407-01')
     stringParam('corefx_version', '2.0.0')
-    stringParam('corefx_minor_version', 'preview1-25305-02')
+    stringParam('corefx_minor_version', 'preview2-25405-01')
     stringParam('core_setup_version', '2.0.0')
-    stringParam('core_setup_minor_version', 'preview1-002111-00')
+    stringParam('core_setup_minor_version', 'preview2-25407-01')
+    stringParam('patch_version', 'v2.0.0-preview2-tizen')
   }
 
   projectLoop.each { projectName ->
@@ -56,10 +57,12 @@ job('generator/official_poll') {
         propDir = "${projectName}/${version}/${minor_version}"
     }
 
+    def patch = "${projectName}-\${patch_version}.patch"
+
     steps {
       conditionalSteps {
         condition {
-          shell("jobs/scripts/get_version.sh ${projectName} ${version} ${minor_version}")
+          shell("jobs/scripts/get_version.sh ${projectName} ${version} ${minor_version} ${patch}")
         }
 
         steps {
@@ -84,6 +87,7 @@ folder('official-release') {}
 
 projectLoop.each { projectName ->
 
+  def netcoreDir = "netcore-jenkins"
   def projectDir = "dotnet_${projectName}"
   def fullJobName = "${projectName}_${targetArch}"
   def newJob = job('official-release/' + fullJobName) {
@@ -105,7 +109,7 @@ projectLoop.each { projectName ->
         branch("*/master")
 
         extensions {
-          relativeTargetDirectory('netcore-jenkins')
+          relativeTargetDirectory("${netcoreDir}")
         }
       }
     }
@@ -120,6 +124,7 @@ projectLoop.each { projectName ->
       stringParam('minor_version', '')
       stringParam('sha1', '')
       stringParam('buildid', '')
+      stringParam('patch', '')
       stringParam('config', config)
       stringParam('targetArch', targetArch)
     }
@@ -130,6 +135,9 @@ projectLoop.each { projectName ->
 
   // Set retention policy
   Utilities.addRetentionPolicy(newJob)
+  // Apply patch
+  def patch = "${netcoreDir}/patches/\${patch}"
+  Utilities.applyPatch(newJob, patch, projectDir)
   // Set a build steps
   Utilities.addBuildSteps(newJob, projectName, projectDir)
   // Upload packages to the predefined myget server
