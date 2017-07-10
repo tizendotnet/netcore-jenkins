@@ -6,6 +6,12 @@
 ### [root-generator](http://52.79.132.74:8080/job/root-generator/)
 This is a seed job using [jobs/generation/RootGenerator.groovy](https://github.com/jyoungyun/netcore-jenkins/blob/master/jobs/generation/RootGenerator.groovy) file.
 
+Required parameter:
+* NUGET_FEED - https://tizen.myget.org/F/dotnet-core/api/v3/index.json
+* NUGET_SFEED - https://tizen.myget.org/F/dotnet-core/symbols/api/v2/package
+* NUGET_API_KEY - [API KEY](https://tizen.myget.org/feed/Details/dotnet-core)
+* EMAIL - dotnet@samsung.com
+
 Generated the following items:
 * generator » poll
 * release » core-setup_master_armel_Release
@@ -40,12 +46,18 @@ Generated the following items:
 1. Clone project git repository
 2. Clone [netcore-jenkins](https://github.com/jyoungyun/netcore-jenkins.git) git repository
 3. Build project code
-4. Upload result packages to [Tizen dotnet-core myget](https://tizen.myget.org/gallery/dotnet-core)
+4. Upload result packages to NUGET_FEED
 5. Archive artifacts
 
 ## Official Release Infra
 ### [official-generator](http://52.79.132.74:8080/job/official-generator/)
 This is a seed job using [jobs/generation/ReleaseGenerator.groovy](https://github.com/jyoungyun/netcore-jenkins/blob/master/jobs/generation/ReleaseGenerator.groovy) file.
+
+Required parameter:
+* NUGET_FEED - https://tizen.myget.org/F/dotnet-core/api/v3/index.json
+* NUGET_SFEED - https://tizen.myget.org/F/dotnet-core/symbols/api/v2/package
+* NUGET_API_KEY - [API KEY](https://tizen.myget.org/feed/Details/dotnet-core)
+* EMAIL - dotnet@samsung.com
 
 Generated the following items:
 * generator » official_poll
@@ -77,5 +89,5 @@ The *project_version* is an official build version like 1.0.0 and 2.0.0. The *pr
 2. Clone [netcore-jenkins](https://github.com/jyoungyun/netcore-jenkins.git) git repository
 3. Apply patch if a patch to apply exists
 4. Build project code
-5. Upload result packages to [Tizen dotnet-core myget](https://tizen.myget.org/gallery/dotnet-core)
+5. Upload result packages to NUGET_FEED
 6. Archive artifacts
