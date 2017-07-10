@@ -91,3 +91,19 @@ The *project_version* is an official build version like 1.0.0 and 2.0.0. The *pr
 4. Build project code
 5. Upload result packages to NUGET_FEED
 6. Archive artifacts
+
+### The list of packages that require official release
+For .NETCore App
+* runtime.tizen.4.0.0-armel.Microsoft.NETCore.App
+* runtime.tizen.4.0.0-armel.Microsoft.NETCore.DotNetHost
+* runtime.tizen.4.0.0-armel.Microsoft.NETCore.DotNetHostPolicy
+* runtime.tizen.4.0.0-armel.Microsoft.NETCore.DotNetHostResolver
+* runtime.tizen.4.0.0-armel.Microsoft.NETCore.DotNetAppHost
+
+For CoreCLR Native
+* runtime.tizen.4.0.0-armel.Microsoft.NETCore.Jit
+* runtime.tizen.4.0.0-armel.Microsoft.NETCore.TestHost
+* runtime.tizen.4.0.0-armel.Microsoft.NETCore.ILAsm
+* runtime.tizen.4.0.0-armel.Microsoft.NETCore.ILDAsm
+* runtime.tizen.4.0.0-armel.Microsoft.NETCore.Native
+* runtime.tizen.4.0.0-armel.Microsoft.NETCore.Runtime.CoreCLR
