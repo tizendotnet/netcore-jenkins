@@ -7,6 +7,12 @@ convert_builddate()
 {
     local _version=$1; shift
 
+    # In case of stable release, return as is.
+    if [ "${_version}" == "stable" ]; then
+        echo "${_version}"
+        exit 0
+    fi
+
     IFS=- read -r branch date count <<< ${_version}
     local month=${date::(-2)}
     local day=${date:(-2)}
@@ -67,7 +73,11 @@ done
 for list in ${versionlist[@]}; do
     IFS=: read -r pkg br major_version <<< ${list}
     if [ "${pkg}" == "${project}" ] && [ "${br}" == "${branch}" ]; then
-        fullversion="${major_version}-${cur_version}"
+        if [ "${cur_version}" == "stable" ]; then
+            fullversion="${major_version}"
+        else
+            fullversion="${major_version}-${cur_version}"
+        fi
     fi
 done
 
