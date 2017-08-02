@@ -10,7 +10,7 @@ Required parameter:
 * NUGET_FEED - https://tizen.myget.org/F/dotnet-core/api/v3/index.json
 * NUGET_SFEED - https://tizen.myget.org/F/dotnet-core/symbols/api/v2/package
 * NUGET_API_KEY - [API KEY](https://tizen.myget.org/feed/Details/dotnet-core)
-* EMAIL - dotnet@samsung.com
+* EMAIL - dotnet at samsung.com
 
 Generated the following items:
 * generator » poll
