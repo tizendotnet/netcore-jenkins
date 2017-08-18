@@ -9,6 +9,12 @@ convert_builddate()
 {
     local _version=$1; shift
 
+    # In case of stable release, return as is.
+    if [ "${_version}" == "stable" ]; then
+        echo "${_version}"
+        exit 0
+    fi
+
     IFS=- read -r branch date count <<< ${_version}
     local month=${date::(-2)}
     local day=${date:(-2)}
@@ -43,7 +49,12 @@ for list in ${pkglist[@]}; do
     fi
 done
 
-fullversion="${version}-${minor_version}"
+if [ "${minor_version}" == "stable" ]; then
+    fullversion="${version}"
+else
+    fullversion="${version}-${minor_version}"
+fi
+
 nupkg_name="${pkgname}.${fullversion}.nupkg"
 feedlist=( "https://www.nuget.org/api/v2/package"
            "https://dotnet.myget.org/F/dotnet-core/api/v2/package"
