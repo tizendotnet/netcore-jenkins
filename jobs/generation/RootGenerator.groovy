@@ -36,7 +36,7 @@ job('generator/poll') {
     }
     git {
       remote {
-        github('jyoungyun/netcore-jenkins')
+        github('tizendotnet/netcore-jenkins')
       }
       branch('*/master')
 
@@ -103,7 +103,7 @@ projectLoop.each { projectName ->
         }
         git {
           remote {
-            github('jyoungyun/netcore-jenkins')
+            github('tizendotnet/netcore-jenkins')
           }
           branch("*/master")
 
