@@ -1,0 +1,165 @@
+diff --git a/cross/arm/tryrun.cmake b/cross/arm/tryrun.cmake
+index 26a30e5..55265b4 100644
+--- a/cross/arm/tryrun.cmake
++++ b/cross/arm/tryrun.cmake
+@@ -55,7 +55,7 @@ SET( HAVE_COMPATIBLE_ASIN_EXITCODE
+      CACHE STRING "Result from TRY_RUN" FORCE)
+ 
+ SET( HAVE_COMPATIBLE_POW_EXITCODE 
+-     1
++     0
+      CACHE STRING "Result from TRY_RUN" FORCE)
+ 
+ SET( HAVE_VALID_NEGATIVE_INF_POW_EXITCODE 
+diff --git a/cross/armel/tryrun.cmake b/cross/armel/tryrun.cmake
+index 26a30e5..55265b4 100644
+--- a/cross/armel/tryrun.cmake
++++ b/cross/armel/tryrun.cmake
+@@ -55,7 +55,7 @@ SET( HAVE_COMPATIBLE_ASIN_EXITCODE
+      CACHE STRING "Result from TRY_RUN" FORCE)
+ 
+ SET( HAVE_COMPATIBLE_POW_EXITCODE 
+-     1
++     0
+      CACHE STRING "Result from TRY_RUN" FORCE)
+ 
+ SET( HAVE_VALID_NEGATIVE_INF_POW_EXITCODE 
+diff --git a/src/jit/importer.cpp b/src/jit/importer.cpp
+index 74018c4..2d50741 100644
+--- a/src/jit/importer.cpp
++++ b/src/jit/importer.cpp
+@@ -14710,6 +14710,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
+                 assertImp(varTypeIsStruct(op2));
+ 
+                 op1 = impAssignStructPtr(op1, op2, resolvedToken.hClass, (unsigned)CHECK_SPILL_ALL);
++
++                if (op1->OperIsBlkOp() && (prefixFlags & PREFIX_UNALIGNED))
++                {
++                    op1->gtFlags |= GTF_BLK_UNALIGNED;
++                }
+                 goto SPILL_APPEND;
+             }
+ 
+@@ -14822,11 +14827,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
+                     // Could point anywhere, example a boxed class static int
+                     op1->gtFlags |= GTF_IND_TGTANYWHERE | GTF_GLOB_REF;
+                     assertImp(varTypeIsArithmetic(op1->gtType));
+-
+-                    if (prefixFlags & PREFIX_UNALIGNED)
+-                    {
+-                        op1->gtFlags |= GTF_IND_UNALIGNED;
+-                    }
+                 }
+                 else
+                 {
+@@ -14836,6 +14836,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
+                 }
+                 op1->gtFlags |= GTF_EXCEPT;
+ 
++                if (prefixFlags & PREFIX_UNALIGNED)
++                {
++                    op1->gtFlags |= GTF_IND_UNALIGNED;
++                }
++
+                 impPushOnStack(op1, tiRetVal);
+                 break;
+             }
+diff --git a/src/jit/morph.cpp b/src/jit/morph.cpp
+index 6928c3c..287731c 100644
+--- a/src/jit/morph.cpp
++++ b/src/jit/morph.cpp
+@@ -9927,6 +9927,20 @@ GenTreePtr Compiler::fgMorphCopyBlock(GenTreePtr tree)
+             requiresCopyBlock = true;
+         }
+ 
++#if defined(_TARGET_ARM_)
++        if ((rhs->OperIsIndir()) && (rhs->gtFlags & GTF_IND_UNALIGNED))
++        {
++            JITDUMP(" rhs is unaligned");
++            requiresCopyBlock = true;
++        }
++
++        if (asg->gtFlags & GTF_BLK_UNALIGNED)
++        {
++            JITDUMP(" asg is unaligned");
++            requiresCopyBlock = true;
++        }
++#endif // _TARGET_ARM_
++
+         if (dest->OperGet() == GT_OBJ && dest->AsBlk()->gtBlkOpGcUnsafe)
+         {
+             requiresCopyBlock = true;
+@@ -10254,7 +10268,6 @@ GenTreePtr Compiler::fgMorphCopyBlock(GenTreePtr tree)
+ 
+             tree = gtNewAssignNode(gtNewLclvNode(addrSpillTemp, TYP_BYREF), addrSpill);
+ 
+-#ifndef LEGACY_BACKEND
+             // If we are assigning the address of a LclVar here
+             // liveness does not account for this kind of address taken use.
+             //
+@@ -10272,7 +10285,6 @@ GenTreePtr Compiler::fgMorphCopyBlock(GenTreePtr tree)
+                     lvaSetVarDoNotEnregister(lclVarNum DEBUGARG(DNER_AddrExposed));
+                 }
+             }
+-#endif // !LEGACY_BACKEND
+         }
+ 
+     _AssignFields:
+diff --git a/src/vm/arm/memcpy.S b/src/vm/arm/memcpy.S
+index b978860..0c2c26e 100644
+--- a/src/vm/arm/memcpy.S
++++ b/src/vm/arm/memcpy.S
+@@ -22,8 +22,8 @@
+         PROLOG_PUSH  "{r7, lr}"
+         PROLOG_STACK_SAVE r7
+         
+-        ldr r3, [r0]
+-        ldr r3, [r1]
++        ldrb r3, [r0]
++        ldrb r3, [r1]
+         
+         blx C_FUNC(memcpy)
+ 
+diff --git a/src/vm/dllimportcallback.cpp b/src/vm/dllimportcallback.cpp
+index c70d52d..90c01a4 100644
+--- a/src/vm/dllimportcallback.cpp
++++ b/src/vm/dllimportcallback.cpp
+@@ -1382,9 +1382,9 @@ VOID UMThunkMarshInfo::RunTimeInit()
+     UINT16 cbRetPop = 0;
+ 
+     //
+-    // m_cbStackArgSize represents the number of arg bytes for the MANAGED signature
++    // cbStackArgSize represents the number of arg bytes for the MANAGED signature
+     //
+-    m_cbStackArgSize = 0;
++    UINT32 cbStackArgSize = 0;
+ 
+     int offs = 0;
+ 
+@@ -1410,9 +1410,10 @@ VOID UMThunkMarshInfo::RunTimeInit()
+         else
+         {
+             offs += StackElemSize(cbSize);
+-            m_cbStackArgSize += StackElemSize(cbSize);
++            cbStackArgSize += StackElemSize(cbSize);
+         }
+     }
++    m_cbStackArgSize = cbStackArgSize;
+     m_cbActualArgSize = (pStubMD != NULL) ? pStubMD->AsDynamicMethodDesc()->GetNativeStackArgSize() : offs;
+ 
+     PInvokeStaticSigInfo sigInfo;
+diff --git a/tests/testsUnsupportedOnARM32.txt b/tests/testsUnsupportedOnARM32.txt
+index d889b57..536db69 100644
+--- a/tests/testsUnsupportedOnARM32.txt
++++ b/tests/testsUnsupportedOnARM32.txt
+@@ -10,3 +10,10 @@ JIT/Methodical/xxobj/sizeof/_il_relsizeof32/_il_relsizeof32.sh
+ JIT/Methodical/xxobj/sizeof/_il_relsizeof64/_il_relsizeof64.sh
+ JIT/Regression/JitBlue/devdiv_902271/DevDiv_902271/DevDiv_902271.sh
+ JIT/jit64/opt/cse/HugeArray1/HugeArray1.sh
++JIT/jit64/opt/cse/hugeSimpleExpr1/hugeSimpleExpr1.sh
++GC/Regressions/v2.0-rtm/494226/494226/494226.sh
++GC/Scenarios/ServerModel/servermodel/servermodel.sh
++JIT/jit64/opt/cse/HugeField1/HugeField1.sh
++JIT/jit64/opt/cse/HugeField2/HugeField2.sh
++JIT/jit64/opt/cse/hugeexpr1/hugeexpr1.sh
++JIT/superpmi/superpmicollect/superpmicollect.sh
