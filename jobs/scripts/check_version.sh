@@ -1,4 +1,5 @@
 #!/bin/bash
+#set -x
 
 project=$1; shift
 branch=$1; shift
@@ -71,12 +72,15 @@ for list in ${pkglist[@]}; do
     fi
 done
 
+mv ${nupkg_versions_file} ${nupkg_versions_file}.org
+tr -d '\r' < ${nupkg_versions_file}.org > ${nupkg_versions_file}
+
 for list in ${versionlist[@]}; do
     IFS=: read -r pkg br major_version <<< ${list}
     while read line; do
         read -r nupkg_name nupkg_version <<< $line
         if [ ${nupkg_name} == ${pkgname} ] && [ "${pkg}" == "${project}" ] && [ "${br}" == "${branch}" ]; then
-            full_version=${nupkg_version}
+            fullversion=${nupkg_version}
         fi
     done < ${nupkg_versions_file}
 done
