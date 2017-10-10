@@ -33,8 +33,8 @@ class Utilities {
    * @return Docker command
    */
   def static getDockerCommand(String projectDir = "") {
-    def repository = "hqueue/dotnetcore"
-    def container = "ubuntu1404_cross_prereqs_v4-tizen_rootfs"
+    def repository = "hqueue/dotnet-buildtools-prereqs"
+    def container = "ubuntu-14.04-cross-0cd4667-20172211042239-tizen-rootfs-20170925"
     def workingDirectory = "/opt/code"
     def environment = "-e ROOTFS_DIR=/crossrootfs/\${targetArch}.tizen.build"
     def command = "docker run --rm -v \${WORKSPACE}${projectDir}:${workingDirectory} -w=${workingDirectory} ${environment} ${repository}:${container}"
