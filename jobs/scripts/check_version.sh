@@ -126,6 +126,14 @@ echo "version=${cur_version}" > "${prop_file}"
 echo "sha1=${commit}" >> "${prop_file}"
 echo "buildid=$( convert_builddate "${cur_version}" )" >> "${prop_file}"
 
+
+apache_dir=/var/www/files/
+version_dir=${apache_dir}/version-info/${project}/${branch}
+
+mkdir -p ${version_dir}
+cp ${prop_file} ${version_dir}/${cur_version}.properties
+
+
 rm -rf ${temp_dir}
 rm -rf ${nupkg_name}
 
