@@ -1,0 +1,5315 @@
+From 233bb0c8341079163acc12bea195e649f54ec5fb Mon Sep 17 00:00:00 2001
+From: Jonghyun Park <parjong@gmail.com>
+Date: Sat, 20 May 2017 06:26:27 +0900
+Subject: [PATCH 01/36] [ARM/Linux] Support unaligned struct read/write
+ (#11290)
+
+* [ARM/Linux] Support unaligned struct read
+
+* Fix format error
+
+* Support unaligned struct write
+---
+ src/jit/importer.cpp | 15 ++++++++++-----
+ src/jit/morph.cpp    | 14 ++++++++++++++
+ 2 files changed, 24 insertions(+), 5 deletions(-)
+
+diff --git a/src/jit/importer.cpp b/src/jit/importer.cpp
+index 74018c4..2d50741 100644
+--- a/src/jit/importer.cpp
++++ b/src/jit/importer.cpp
+@@ -14710,6 +14710,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
+                 assertImp(varTypeIsStruct(op2));
+ 
+                 op1 = impAssignStructPtr(op1, op2, resolvedToken.hClass, (unsigned)CHECK_SPILL_ALL);
++
++                if (op1->OperIsBlkOp() && (prefixFlags & PREFIX_UNALIGNED))
++                {
++                    op1->gtFlags |= GTF_BLK_UNALIGNED;
++                }
+                 goto SPILL_APPEND;
+             }
+ 
+@@ -14822,11 +14827,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
+                     // Could point anywhere, example a boxed class static int
+                     op1->gtFlags |= GTF_IND_TGTANYWHERE | GTF_GLOB_REF;
+                     assertImp(varTypeIsArithmetic(op1->gtType));
+-
+-                    if (prefixFlags & PREFIX_UNALIGNED)
+-                    {
+-                        op1->gtFlags |= GTF_IND_UNALIGNED;
+-                    }
+                 }
+                 else
+                 {
+@@ -14836,6 +14836,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
+                 }
+                 op1->gtFlags |= GTF_EXCEPT;
+ 
++                if (prefixFlags & PREFIX_UNALIGNED)
++                {
++                    op1->gtFlags |= GTF_IND_UNALIGNED;
++                }
++
+                 impPushOnStack(op1, tiRetVal);
+                 break;
+             }
+diff --git a/src/jit/morph.cpp b/src/jit/morph.cpp
+index 9404469..27a1dae 100644
+--- a/src/jit/morph.cpp
++++ b/src/jit/morph.cpp
+@@ -9960,6 +9960,20 @@ GenTreePtr Compiler::fgMorphCopyBlock(GenTreePtr tree)
+             requiresCopyBlock = true;
+         }
+ 
++#if defined(_TARGET_ARM_)
++        if ((rhs->OperIsIndir()) && (rhs->gtFlags & GTF_IND_UNALIGNED))
++        {
++            JITDUMP(" rhs is unaligned");
++            requiresCopyBlock = true;
++        }
++
++        if (asg->gtFlags & GTF_BLK_UNALIGNED)
++        {
++            JITDUMP(" asg is unaligned");
++            requiresCopyBlock = true;
++        }
++#endif // _TARGET_ARM_
++
+         if (dest->OperGet() == GT_OBJ && dest->AsBlk()->gtBlkOpGcUnsafe)
+         {
+             requiresCopyBlock = true;
+-- 
+1.9.1
+
+
+From 7cc0b213808a64978e520a91ead790da431c5c9b Mon Sep 17 00:00:00 2001
+From: Jonghyun Park <parjong@gmail.com>
+Date: Thu, 25 May 2017 02:34:59 +0900
+Subject: [PATCH 02/36] [x86/Linux] Thread-safe UMThunkMarshInfo::RunTimeInit
+ (#11864)
+
+---
+ src/vm/dllimportcallback.cpp | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/src/vm/dllimportcallback.cpp b/src/vm/dllimportcallback.cpp
+index c70d52d..90c01a4 100644
+--- a/src/vm/dllimportcallback.cpp
++++ b/src/vm/dllimportcallback.cpp
+@@ -1382,9 +1382,9 @@ VOID UMThunkMarshInfo::RunTimeInit()
+     UINT16 cbRetPop = 0;
+ 
+     //
+-    // m_cbStackArgSize represents the number of arg bytes for the MANAGED signature
++    // cbStackArgSize represents the number of arg bytes for the MANAGED signature
+     //
+-    m_cbStackArgSize = 0;
++    UINT32 cbStackArgSize = 0;
+ 
+     int offs = 0;
+ 
+@@ -1410,9 +1410,10 @@ VOID UMThunkMarshInfo::RunTimeInit()
+         else
+         {
+             offs += StackElemSize(cbSize);
+-            m_cbStackArgSize += StackElemSize(cbSize);
++            cbStackArgSize += StackElemSize(cbSize);
+         }
+     }
++    m_cbStackArgSize = cbStackArgSize;
+     m_cbActualArgSize = (pStubMD != NULL) ? pStubMD->AsDynamicMethodDesc()->GetNativeStackArgSize() : offs;
+ 
+     PInvokeStaticSigInfo sigInfo;
+-- 
+1.9.1
+
+
+From 859fee1e493bfb32ab549bca9cf0dd0b977ce885 Mon Sep 17 00:00:00 2001
+From: SaeHie Park <saehie.park@gmail.com>
+Date: Fri, 19 May 2017 00:20:57 +0900
+Subject: [PATCH 03/36] Enable pow for arm/armel in tryrun (#11703)
+
+This will fix CoreFX System.Tests.MathFTests.Pow() failures
+---
+ cross/arm/tryrun.cmake   | 2 +-
+ cross/armel/tryrun.cmake | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/cross/arm/tryrun.cmake b/cross/arm/tryrun.cmake
+index 26a30e5..55265b4 100644
+--- a/cross/arm/tryrun.cmake
++++ b/cross/arm/tryrun.cmake
+@@ -55,7 +55,7 @@ SET( HAVE_COMPATIBLE_ASIN_EXITCODE
+      CACHE STRING "Result from TRY_RUN" FORCE)
+ 
+ SET( HAVE_COMPATIBLE_POW_EXITCODE 
+-     1
++     0
+      CACHE STRING "Result from TRY_RUN" FORCE)
+ 
+ SET( HAVE_VALID_NEGATIVE_INF_POW_EXITCODE 
+diff --git a/cross/armel/tryrun.cmake b/cross/armel/tryrun.cmake
+index 26a30e5..55265b4 100644
+--- a/cross/armel/tryrun.cmake
++++ b/cross/armel/tryrun.cmake
+@@ -55,7 +55,7 @@ SET( HAVE_COMPATIBLE_ASIN_EXITCODE
+      CACHE STRING "Result from TRY_RUN" FORCE)
+ 
+ SET( HAVE_COMPATIBLE_POW_EXITCODE 
+-     1
++     0
+      CACHE STRING "Result from TRY_RUN" FORCE)
+ 
+ SET( HAVE_VALID_NEGATIVE_INF_POW_EXITCODE 
+-- 
+1.9.1
+
+
+From 5e90ac56425ac2e20eda55f3d40a0026eec8089b Mon Sep 17 00:00:00 2001
+From: Jonghyun Park <parjong@gmail.com>
+Date: Fri, 9 Jun 2017 09:52:53 +0900
+Subject: [PATCH 04/36] [ARM/Linux] Validate memory using ldrb instead of ldr
+
+---
+ src/vm/arm/memcpy.S | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/vm/arm/memcpy.S b/src/vm/arm/memcpy.S
+index b978860..0c2c26e 100644
+--- a/src/vm/arm/memcpy.S
++++ b/src/vm/arm/memcpy.S
+@@ -22,8 +22,8 @@
+         PROLOG_PUSH  "{r7, lr}"
+         PROLOG_STACK_SAVE r7
+         
+-        ldr r3, [r0]
+-        ldr r3, [r1]
++        ldrb r3, [r0]
++        ldrb r3, [r1]
+         
+         blx C_FUNC(memcpy)
+ 
+-- 
+1.9.1
+
+
+From f64b4e3185745eecaa1e9b1a551b679f141ddaa2 Mon Sep 17 00:00:00 2001
+From: Jiyoung Yun <jy910.yun@samsung.com>
+Date: Tue, 20 Jun 2017 15:09:10 +0900
+Subject: [PATCH 05/36] Add skipped testcase on TM1
+
+Lists:
+JIT.jit64.opt.cse.hugeSimpleExpr1.hugeSimpleExpr1
+GC.Regressions.v2.0-rtm.494226.494226.494226
+GC.Scenarios.ServerModel.servermodel.servermodel
+JIT.jit64.opt.cse.HugeField1.HugeField1
+JIT.jit64.opt.cse.HugeField2.HugeField2
+JIT.jit64.opt.cse.hugeexpr1.hugeexpr1
+---
+ tests/testsUnsupportedOnARM32.txt | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/tests/testsUnsupportedOnARM32.txt b/tests/testsUnsupportedOnARM32.txt
+index d889b57..82cc41d 100644
+--- a/tests/testsUnsupportedOnARM32.txt
++++ b/tests/testsUnsupportedOnARM32.txt
+@@ -10,3 +10,9 @@ JIT/Methodical/xxobj/sizeof/_il_relsizeof32/_il_relsizeof32.sh
+ JIT/Methodical/xxobj/sizeof/_il_relsizeof64/_il_relsizeof64.sh
+ JIT/Regression/JitBlue/devdiv_902271/DevDiv_902271/DevDiv_902271.sh
+ JIT/jit64/opt/cse/HugeArray1/HugeArray1.sh
++JIT/jit64/opt/cse/hugeSimpleExpr1/hugeSimpleExpr1.sh
++GC/Regressions/v2.0-rtm/494226/494226/494226.sh
++GC/Scenarios/ServerModel/servermodel/servermodel.sh
++JIT/jit64/opt/cse/HugeField1/HugeField1.sh
++JIT/jit64/opt/cse/HugeField2/HugeField2.sh
++JIT/jit64/opt/cse/hugeexpr1/hugeexpr1.sh
+-- 
+1.9.1
+
+
+From 49b89a063fc18e2000a978ed0e0e0e2aeab42f8a Mon Sep 17 00:00:00 2001
+From: Jonghyun Park <parjong@gmail.com>
+Date: Wed, 14 Jun 2017 07:05:12 +0900
+Subject: [PATCH 06/36] Set local variables as addr-exposed if it appears in
+ ADDR expression
+
+---
+ src/jit/morph.cpp | 4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+diff --git a/src/jit/morph.cpp b/src/jit/morph.cpp
+index 27a1dae..629dc83 100644
+--- a/src/jit/morph.cpp
++++ b/src/jit/morph.cpp
+@@ -8921,7 +8921,6 @@ GenTreePtr Compiler::fgMorphOneAsgBlockOp(GenTreePtr tree)
+                 }
+                 else
+                 {
+-#ifndef LEGACY_BACKEND
+ 
+                     // The source argument of the copyblk can potentially
+                     // be accessed only through indir(addr(lclVar))
+@@ -8931,6 +8930,7 @@ GenTreePtr Compiler::fgMorphOneAsgBlockOp(GenTreePtr tree)
+                     // we don't delete it as a dead store later on.
+                     unsigned lclVarNum                = lclVarTree->gtLclVarCommon.gtLclNum;
+                     lvaTable[lclVarNum].lvAddrExposed = true;
++#ifndef LEGACY_BACKEND
+                     lvaSetVarDoNotEnregister(lclVarNum DEBUGARG(DNER_AddrExposed));
+ 
+ #else  // LEGACY_BACKEND
+@@ -10301,7 +10301,6 @@ GenTreePtr Compiler::fgMorphCopyBlock(GenTreePtr tree)
+ 
+             tree = gtNewAssignNode(gtNewLclvNode(addrSpillTemp, TYP_BYREF), addrSpill);
+ 
+-#ifndef LEGACY_BACKEND
+             // If we are assigning the address of a LclVar here
+             // liveness does not account for this kind of address taken use.
+             //
+@@ -10319,7 +10318,6 @@ GenTreePtr Compiler::fgMorphCopyBlock(GenTreePtr tree)
+                     lvaSetVarDoNotEnregister(lclVarNum DEBUGARG(DNER_AddrExposed));
+                 }
+             }
+-#endif // !LEGACY_BACKEND
+         }
+ 
+     _AssignFields:
+-- 
+1.9.1
+
+
+From 529a5753bdeee30c8fc73c6fc9119f34940a64ab Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=EC=98=A4=ED=98=95=EC=84=9D/Developer=20Experience=20Lab?=
+ =?UTF-8?q?=28S/W=EC=84=BC=ED=84=B0=29/Senior=20Engineer/=EC=82=BC?=
+ =?UTF-8?q?=EC=84=B1=EC=A0=84=EC=9E=90?= <hseok82.oh@samsung.com>
+Date: Tue, 20 Jun 2017 12:20:44 +0900
+Subject: [PATCH 07/36] Revert unnecessary changes
+
+---
+ src/jit/morph.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/jit/morph.cpp b/src/jit/morph.cpp
+index 629dc83..3475889 100644
+--- a/src/jit/morph.cpp
++++ b/src/jit/morph.cpp
+@@ -8921,6 +8921,7 @@ GenTreePtr Compiler::fgMorphOneAsgBlockOp(GenTreePtr tree)
+                 }
+                 else
+                 {
++#ifndef LEGACY_BACKEND
+ 
+                     // The source argument of the copyblk can potentially
+                     // be accessed only through indir(addr(lclVar))
+@@ -8930,7 +8931,6 @@ GenTreePtr Compiler::fgMorphOneAsgBlockOp(GenTreePtr tree)
+                     // we don't delete it as a dead store later on.
+                     unsigned lclVarNum                = lclVarTree->gtLclVarCommon.gtLclNum;
+                     lvaTable[lclVarNum].lvAddrExposed = true;
+-#ifndef LEGACY_BACKEND
+                     lvaSetVarDoNotEnregister(lclVarNum DEBUGARG(DNER_AddrExposed));
+ 
+ #else  // LEGACY_BACKEND
+-- 
+1.9.1
+
+
+From c533925e0a6e1d3c6921abcf41ab99276443cd83 Mon Sep 17 00:00:00 2001
+From: Hyeongseok Oh <hseok82.oh@samsung.com>
+Date: Mon, 26 Jun 2017 16:12:08 +0900
+Subject: [PATCH 08/36] Add skipped testcase: superpmi
+
+Skip JIT/superpmi/superpmicollect/superpmicollect.sh
+---
+ tests/testsUnsupportedOnARM32.txt | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/tests/testsUnsupportedOnARM32.txt b/tests/testsUnsupportedOnARM32.txt
+index 82cc41d..536db69 100644
+--- a/tests/testsUnsupportedOnARM32.txt
++++ b/tests/testsUnsupportedOnARM32.txt
+@@ -16,3 +16,4 @@ GC/Scenarios/ServerModel/servermodel/servermodel.sh
+ JIT/jit64/opt/cse/HugeField1/HugeField1.sh
+ JIT/jit64/opt/cse/HugeField2/HugeField2.sh
+ JIT/jit64/opt/cse/hugeexpr1/hugeexpr1.sh
++JIT/superpmi/superpmicollect/superpmicollect.sh
+-- 
+1.9.1
+
+
+From dbfd81c905d8f97aee7b6e595df02d49f98f3f70 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=EB=B0=95=EC=A2=85=ED=98=84/Developer=20Experience=20Lab?=
+ =?UTF-8?q?=28S/W=EC=84=BC=ED=84=B0=29/Senior=20Engineer/=EC=82=BC?=
+ =?UTF-8?q?=EC=84=B1=EC=A0=84=EC=9E=90?= <jh1302.park@samsung.com>
+Date: Thu, 10 Aug 2017 17:25:46 +0900
+Subject: [PATCH 09/36] [x86/Linux] Adjust SP in throwing helper block (#12504)
+ (#12)
+
+* [x86/Linux] Adjust SP in throwing helper block
+
+* Fix format error
+
+* Use funKind intead of siInFuncletRegion
+
+* Use genSPtoFPdelta (and add some comments)
+
+* Fix a typo
+
+* Revert irrelevant changes
+---
+ src/jit/codegencommon.cpp | 21 ++++++++++++++++++++-
+ 1 file changed, 20 insertions(+), 1 deletion(-)
+
+diff --git a/src/jit/codegencommon.cpp b/src/jit/codegencommon.cpp
+index 94cc9b9..719299e 100644
+--- a/src/jit/codegencommon.cpp
++++ b/src/jit/codegencommon.cpp
+@@ -1642,6 +1642,18 @@ void CodeGen::genAdjustStackLevel(BasicBlock* block)
+ {
+ #if !FEATURE_FIXED_OUT_ARGS
+     // Check for inserted throw blocks and adjust genStackLevel.
++    CLANG_FORMAT_COMMENT_ANCHOR;
++
++#if defined(UNIX_X86_ABI)
++    if (isFramePointerUsed() && compiler->fgIsThrowHlpBlk(block))
++    {
++        // x86/Linux requires stack frames to be 16-byte aligned, but SP may be unaligned
++        // at this point if a jump to this block is made in the middle of pushing arugments.
++        //
++        // Here we restore SP to prevent potential stack alignment issues.
++        getEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, REG_SPBASE, REG_FPBASE, -genSPtoFPdelta());
++    }
++#endif
+ 
+     if (!isFramePointerUsed() && compiler->fgIsThrowHlpBlk(block))
+     {
+@@ -2694,7 +2706,14 @@ void CodeGen::genExitCode(BasicBlock* block)
+ 
+ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind jumpKind, SpecialCodeKind codeKind, GenTreePtr failBlk)
+ {
+-    if (!compiler->opts.compDbgCode)
++    bool useThrowHlpBlk = !compiler->opts.compDbgCode;
++
++#if defined(UNIX_X86_ABI) && FEATURE_EH_FUNCLETS
++    // Inline exception-throwing code in funclet to make it possible to unwind funclet frames.
++    useThrowHlpBlk = useThrowHlpBlk && (compiler->funCurrentFunc()->funKind == FUNC_ROOT);
++#endif // UNIX_X86_ABI && FEATURE_EH_FUNCLETS
++
++    if (useThrowHlpBlk)
+     {
+         /* For non-debuggable code, find and use the helper block for
+            raising the exception. The block may be shared by other trees too. */
+-- 
+1.9.1
+
+
+From 90fd3a315a5300c4c72086e541d35a73694e176b Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=EC=9D=B4=EC=B6=98=EC=84=9D/Developer=20Experience=20Lab?=
+ =?UTF-8?q?=28S/W=EC=84=BC=ED=84=B0=29/Senior=20Engineer/=EC=82=BC?=
+ =?UTF-8?q?=EC=84=B1=EC=A0=84=EC=9E=90?= <chunseok.lee@samsung.com>
+Date: Thu, 24 Aug 2017 07:27:23 +0900
+Subject: [PATCH 10/36] Use 'udf 0xff' instead of 'bkpt 0xbe' as a poison (#13)
+
+* Fill freed loader heap chunk with non-zero value (#12731)
+
+* Add FEATURE_LOADER_HEAP_GUARD feature
+
+* Invoke memset only for reclaimed regions
+
+* Enable FEATURE_LOADER_HEAP_GUARD by default
+
+* Insert trap inside UMEntryThunk::Terminate
+
+* Make all exectuable heaps not to zero-initialize itself
+
+Use fZeroInit (instead of fMakeRelazed)
+
+* Add comment
+
+* Revert unnecessary changes
+
+* Add and use 'Poison' method to insert a trap
+
+* Do NOT invoke FlushInstructionCache
+
+* Update comment
+
+* Add comment on ARM Poisoning instruction
+
+* Use X86_INSTR_INT3 instead of 0xCC
+
+* Use 'udf 0xff' instead of 'bkpt 0xbe' as a poison (#13152)
+---
+ src/inc/loaderheap.h         | 23 +++++++++++++----------
+ src/utilcode/loaderheap.cpp  | 35 ++++++++++++++++++++++++++---------
+ src/vm/amd64/cgenamd64.cpp   | 13 +++++++++++++
+ src/vm/amd64/cgencpu.h       |  1 +
+ src/vm/arm/cgencpu.h         |  1 +
+ src/vm/arm/stubs.cpp         |  6 ++++++
+ src/vm/arm64/cgencpu.h       |  1 +
+ src/vm/arm64/stubs.cpp       |  4 ++++
+ src/vm/dllimportcallback.cpp | 12 +++---------
+ src/vm/dllimportcallback.h   |  4 ----
+ src/vm/i386/cgencpu.h        |  1 +
+ src/vm/i386/cgenx86.cpp      |  7 +++++++
+ src/vm/loaderallocator.cpp   |  4 +++-
+ 13 files changed, 79 insertions(+), 33 deletions(-)
+
+diff --git a/src/inc/loaderheap.h b/src/inc/loaderheap.h
+index 7d4c48f..4333505 100644
+--- a/src/inc/loaderheap.h
++++ b/src/inc/loaderheap.h
+@@ -217,7 +217,7 @@ private:
+ 
+     size_t *             m_pPrivatePerfCounter_LoaderBytes;
+ 
+-    DWORD                m_flProtect;
++    DWORD                m_Options;
+ 
+     LoaderHeapFreeBlock *m_pFirstFreeBlock;
+ 
+@@ -288,7 +288,8 @@ protected:
+                        SIZE_T dwReservedRegionSize,
+                        size_t *pPrivatePerfCounter_LoaderBytes = NULL,
+                        RangeList *pRangeList = NULL,
+-                       BOOL fMakeExecutable = FALSE);
++                       BOOL fMakeExecutable = FALSE,
++                       BOOL fZeroInit = TRUE);
+ 
+     ~UnlockedLoaderHeap();
+ #endif
+@@ -398,10 +399,8 @@ public:
+         return m_dwTotalAlloc;
+     }
+ 
+-    BOOL IsExecutable()
+-    {
+-        return (PAGE_EXECUTE_READWRITE == m_flProtect);
+-    }
++    BOOL IsExecutable();
++    BOOL IsZeroInit();
+ 
+ 
+ public:
+@@ -447,14 +446,16 @@ public:
+                DWORD dwCommitBlockSize,
+                size_t *pPrivatePerfCounter_LoaderBytes = NULL,
+                RangeList *pRangeList = NULL,
+-               BOOL fMakeExecutable = FALSE
++               BOOL fMakeExecutable = FALSE,
++               BOOL fZeroInit = TRUE
+                )
+       : UnlockedLoaderHeap(dwReserveBlockSize,
+                            dwCommitBlockSize,
+                            NULL, 0,
+                            pPrivatePerfCounter_LoaderBytes,
+                            pRangeList,
+-                           fMakeExecutable)
++                           fMakeExecutable,
++                           fZeroInit)
+     {
+         WRAPPER_NO_CONTRACT;
+         m_CriticalSection = NULL;
+@@ -469,7 +470,8 @@ public:
+                SIZE_T dwReservedRegionSize,
+                size_t *pPrivatePerfCounter_LoaderBytes = NULL,
+                RangeList *pRangeList = NULL,
+-               BOOL fMakeExecutable = FALSE
++               BOOL fMakeExecutable = FALSE,
++               BOOL fZeroInit = TRUE
+                )
+       : UnlockedLoaderHeap(dwReserveBlockSize,
+                            dwCommitBlockSize,
+@@ -477,7 +479,8 @@ public:
+                            dwReservedRegionSize,
+                            pPrivatePerfCounter_LoaderBytes,
+                            pRangeList,
+-                           fMakeExecutable)
++                           fMakeExecutable,
++                           fZeroInit)
+     {
+         WRAPPER_NO_CONTRACT;
+         m_CriticalSection = NULL;
+diff --git a/src/utilcode/loaderheap.cpp b/src/utilcode/loaderheap.cpp
+index a005ac8..21aa150 100644
+--- a/src/utilcode/loaderheap.cpp
++++ b/src/utilcode/loaderheap.cpp
+@@ -10,6 +10,9 @@
+ #define DONOT_DEFINE_ETW_CALLBACK
+ #include "eventtracebase.h"
+ 
++#define LHF_EXECUTABLE  0x1
++#define LHF_ZEROINIT    0x2
++
+ #ifndef DACCESS_COMPILE
+ 
+ INDEBUG(DWORD UnlockedLoaderHeap::s_dwNumInstancesOfLoaderHeaps = 0;)
+@@ -903,7 +906,8 @@ UnlockedLoaderHeap::UnlockedLoaderHeap(DWORD dwReserveBlockSize,
+                                        SIZE_T dwReservedRegionSize, 
+                                        size_t *pPrivatePerfCounter_LoaderBytes,
+                                        RangeList *pRangeList,
+-                                       BOOL fMakeExecutable)
++                                       BOOL fMakeExecutable,
++                                       BOOL fZeroInit)
+ {
+     CONTRACTL
+     {
+@@ -939,10 +943,11 @@ UnlockedLoaderHeap::UnlockedLoaderHeap(DWORD dwReserveBlockSize,
+ 
+     m_pPrivatePerfCounter_LoaderBytes = pPrivatePerfCounter_LoaderBytes;
+ 
++    m_Options                    = 0;
+     if (fMakeExecutable)
+-        m_flProtect = PAGE_EXECUTE_READWRITE;
+-    else
+-        m_flProtect = PAGE_READWRITE;
++        m_Options                |= LHF_EXECUTABLE;
++    if (fZeroInit)
++        m_Options                |= LHF_ZEROINIT;
+ 
+     m_pFirstFreeBlock            = NULL;
+ 
+@@ -1133,7 +1138,7 @@ BOOL UnlockedLoaderHeap::UnlockedReservePages(size_t dwSizeToCommit)
+     }
+ 
+     // Commit first set of pages, since it will contain the LoaderHeapBlock
+-    void *pTemp = ClrVirtualAlloc(pData, dwSizeToCommit, MEM_COMMIT, m_flProtect);
++    void *pTemp = ClrVirtualAlloc(pData, dwSizeToCommit, MEM_COMMIT, (m_Options & LHF_EXECUTABLE) ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE);
+     if (pTemp == NULL)
+     {
+         //_ASSERTE(!"Unable to ClrVirtualAlloc commit in a loaderheap");
+@@ -1225,7 +1230,7 @@ BOOL UnlockedLoaderHeap::GetMoreCommittedPages(size_t dwMinSize)
+         dwSizeToCommit = ALIGN_UP(dwSizeToCommit, PAGE_SIZE);
+ 
+         // Yes, so commit the desired number of reserved pages
+-        void *pData = ClrVirtualAlloc(m_pPtrToEndOfCommittedRegion, dwSizeToCommit, MEM_COMMIT, m_flProtect);
++        void *pData = ClrVirtualAlloc(m_pPtrToEndOfCommittedRegion, dwSizeToCommit, MEM_COMMIT, (m_Options & LHF_EXECUTABLE) ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE);
+         if (pData == NULL)
+             return FALSE;
+ 
+@@ -1351,7 +1356,7 @@ again:
+             // Don't fill the memory we allocated - it is assumed to be zeroed - fill the memory after it
+             memset(pAllocatedBytes + dwRequestedSize, 0xEE, LOADER_HEAP_DEBUG_BOUNDARY);
+ #endif
+-            if (dwRequestedSize > 0)
++            if ((dwRequestedSize > 0) && (m_Options & LHF_ZEROINIT))
+             {
+                 _ASSERTE_MSG(pAllocatedBytes[0] == 0 && memcmp(pAllocatedBytes, pAllocatedBytes + 1, dwRequestedSize - 1) == 0,
+                     "LoaderHeap must return zero-initialized memory");
+@@ -1529,7 +1534,8 @@ void UnlockedLoaderHeap::UnlockedBackoutMem(void *pMem,
+     {
+         // Cool. This was the last block allocated. We can just undo the allocation instead
+         // of going to the freelist.
+-        memset(pMem, 0, dwSize);  // Must zero init this memory as AllocMem expect it
++        if (m_Options & LHF_ZEROINIT)
++            memset(pMem, 0x00, dwSize); // Fill freed region with 0
+         m_pAllocPtr = (BYTE*)pMem;
+     }
+     else
+@@ -1639,6 +1645,7 @@ void *UnlockedLoaderHeap::UnlockedAllocAlignedMem_NoThrow(size_t  dwRequestedSiz
+ 
+     
+     ((BYTE*&)pResult) += extra;
++
+ #ifdef _DEBUG
+      BYTE *pAllocatedBytes = (BYTE *)pResult;
+ #if LOADER_HEAP_DEBUG_BOUNDARY > 0
+@@ -1646,7 +1653,7 @@ void *UnlockedLoaderHeap::UnlockedAllocAlignedMem_NoThrow(size_t  dwRequestedSiz
+     memset(pAllocatedBytes + dwRequestedSize, 0xee, LOADER_HEAP_DEBUG_BOUNDARY);
+ #endif
+ 
+-    if (dwRequestedSize != 0)
++    if ((dwRequestedSize != 0) && (m_Options & LHF_ZEROINIT))
+     {
+         _ASSERTE_MSG(pAllocatedBytes[0] == 0 && memcmp(pAllocatedBytes, pAllocatedBytes + 1, dwRequestedSize - 1) == 0,
+             "LoaderHeap must return zero-initialized memory");
+@@ -1766,6 +1773,16 @@ void *UnlockedLoaderHeap::UnlockedAllocMemForCode_NoThrow(size_t dwHeaderSize, s
+ 
+ #endif // #ifndef DACCESS_COMPILE
+ 
++BOOL UnlockedLoaderHeap::IsExecutable()
++{
++    return (m_Options & LHF_EXECUTABLE);
++}
++
++BOOL UnlockedLoaderHeap::IsZeroInit()
++{
++    return (m_Options & LHF_ZEROINIT);
++}
++
+ #ifdef DACCESS_COMPILE
+ 
+ void UnlockedLoaderHeap::EnumMemoryRegions(CLRDataEnumMemoryFlags flags)
+diff --git a/src/vm/amd64/cgenamd64.cpp b/src/vm/amd64/cgenamd64.cpp
+index 497abcd..20dca22 100644
+--- a/src/vm/amd64/cgenamd64.cpp
++++ b/src/vm/amd64/cgenamd64.cpp
+@@ -670,6 +670,19 @@ void UMEntryThunkCode::Encode(BYTE* pTargetCode, void* pvSecretParam)
+     _ASSERTE(DbgIsExecutable(&m_movR10[0], &m_jmpRAX[3]-&m_movR10[0]));
+ }
+ 
++void UMEntryThunkCode::Poison()
++{
++    CONTRACTL
++    {
++        NOTHROW;
++        GC_NOTRIGGER;
++        MODE_ANY;
++    }
++    CONTRACTL_END;
++
++    m_movR10[0] = X86_INSTR_INT3;
++}
++
+ UMEntryThunk* UMEntryThunk::Decode(LPVOID pCallback)
+ {
+     LIMITED_METHOD_CONTRACT;
+diff --git a/src/vm/amd64/cgencpu.h b/src/vm/amd64/cgencpu.h
+index 2d4dce0..8a27525 100644
+--- a/src/vm/amd64/cgencpu.h
++++ b/src/vm/amd64/cgencpu.h
+@@ -466,6 +466,7 @@ struct DECLSPEC_ALIGN(8) UMEntryThunkCode
+     BYTE            m_padding2[5];
+ 
+     void Encode(BYTE* pTargetCode, void* pvSecretParam);
++    void Poison();
+ 
+     LPCBYTE GetEntryPoint() const
+     {
+diff --git a/src/vm/arm/cgencpu.h b/src/vm/arm/cgencpu.h
+index 181d5f1..6f128f6 100644
+--- a/src/vm/arm/cgencpu.h
++++ b/src/vm/arm/cgencpu.h
+@@ -988,6 +988,7 @@ struct DECLSPEC_ALIGN(4) UMEntryThunkCode
+     TADDR       m_pvSecretParam;
+ 
+     void Encode(BYTE* pTargetCode, void* pvSecretParam);
++    void Poison();
+ 
+     LPCBYTE GetEntryPoint() const
+     {
+diff --git a/src/vm/arm/stubs.cpp b/src/vm/arm/stubs.cpp
+index 3088761..c832911 100644
+--- a/src/vm/arm/stubs.cpp
++++ b/src/vm/arm/stubs.cpp
+@@ -2523,6 +2523,12 @@ void UMEntryThunkCode::Encode(BYTE* pTargetCode, void* pvSecretParam)
+     FlushInstructionCache(GetCurrentProcess(),&m_code,sizeof(m_code));
+ }
+ 
++void UMEntryThunkCode::Poison()
++{
++    // Insert 'udf 0xff' at the entry point
++    m_code[0] = 0xdeff;
++}
++
+ ///////////////////////////// UNIMPLEMENTED //////////////////////////////////
+ 
+ #ifndef DACCESS_COMPILE
+diff --git a/src/vm/arm64/cgencpu.h b/src/vm/arm64/cgencpu.h
+index d8bbcf7..5c522c5 100644
+--- a/src/vm/arm64/cgencpu.h
++++ b/src/vm/arm64/cgencpu.h
+@@ -481,6 +481,7 @@ struct DECLSPEC_ALIGN(16) UMEntryThunkCode
+     TADDR       m_pvSecretParam;
+ 
+     void Encode(BYTE* pTargetCode, void* pvSecretParam);
++    void Poison();
+ 
+     LPCBYTE GetEntryPoint() const
+     {
+diff --git a/src/vm/arm64/stubs.cpp b/src/vm/arm64/stubs.cpp
+index 40d2749..df2124d 100644
+--- a/src/vm/arm64/stubs.cpp
++++ b/src/vm/arm64/stubs.cpp
+@@ -1244,6 +1244,10 @@ void UMEntryThunkCode::Encode(BYTE* pTargetCode, void* pvSecretParam)
+     FlushInstructionCache(GetCurrentProcess(),&m_code,sizeof(m_code));
+ }
+ 
++void UMEntryThunkCode::Poison()
++{
++
++}
+ 
+ #ifdef PROFILING_SUPPORTED
+ #include "proftoeeinterfaceimpl.h"
+diff --git a/src/vm/dllimportcallback.cpp b/src/vm/dllimportcallback.cpp
+index 90c01a4..8684c12 100644
+--- a/src/vm/dllimportcallback.cpp
++++ b/src/vm/dllimportcallback.cpp
+@@ -1111,13 +1111,8 @@ UMEntryThunk* UMEntryThunk::CreateUMEntryThunk()
+ 
+     UMEntryThunk * p;
+ 
+-#ifdef FEATURE_WINDOWSPHONE
+     // On the phone, use loader heap to save memory commit of regular executable heap
+     p = (UMEntryThunk *)(void *)SystemDomain::GetGlobalLoaderAllocator()->GetExecutableHeap()->AllocMem(S_SIZE_T(sizeof(UMEntryThunk)));
+-#else
+-    p = new (executable) UMEntryThunk;
+-    memset (p, 0, sizeof(*p));
+-#endif
+ 
+     RETURN p;
+ }
+@@ -1126,11 +1121,10 @@ void UMEntryThunk::Terminate()
+ {
+     WRAPPER_NO_CONTRACT;
+ 
+-#ifdef FEATURE_WINDOWSPHONE
++    _ASSERTE(!SystemDomain::GetGlobalLoaderAllocator()->GetExecutableHeap()->IsZeroInit());
++    m_code.Poison();
++
+     SystemDomain::GetGlobalLoaderAllocator()->GetExecutableHeap()->BackoutMem(this, sizeof(UMEntryThunk));
+-#else
+-    DeleteExecutable(this);
+-#endif
+ }
+ 
+ VOID UMEntryThunk::FreeUMEntryThunk(UMEntryThunk* p)
+diff --git a/src/vm/dllimportcallback.h b/src/vm/dllimportcallback.h
+index af2a0b1..e79c5f0 100644
+--- a/src/vm/dllimportcallback.h
++++ b/src/vm/dllimportcallback.h
+@@ -326,10 +326,6 @@ public:
+         {
+             DestroyLongWeakHandle(GetObjectHandle());
+         }
+-
+-#ifdef _DEBUG
+-        FillMemory(this, sizeof(*this), 0xcc);
+-#endif
+     }
+ 
+     void Terminate();
+diff --git a/src/vm/i386/cgencpu.h b/src/vm/i386/cgencpu.h
+index ff76d99..e4a623b 100644
+--- a/src/vm/i386/cgencpu.h
++++ b/src/vm/i386/cgencpu.h
+@@ -504,6 +504,7 @@ struct DECLSPEC_ALIGN(4) UMEntryThunkCode
+     const BYTE *    m_execstub; // pointer to destination code  // make sure the backpatched portion is dword aligned.
+ 
+     void Encode(BYTE* pTargetCode, void* pvSecretParam);
++    void Poison();
+ 
+     LPCBYTE GetEntryPoint() const
+     {
+diff --git a/src/vm/i386/cgenx86.cpp b/src/vm/i386/cgenx86.cpp
+index 0a276c0..ca81bb7 100644
+--- a/src/vm/i386/cgenx86.cpp
++++ b/src/vm/i386/cgenx86.cpp
+@@ -1587,6 +1587,13 @@ void UMEntryThunkCode::Encode(BYTE* pTargetCode, void* pvSecretParam)
+     FlushInstructionCache(GetCurrentProcess(),GetEntryPoint(),sizeof(UMEntryThunkCode));
+ }
+ 
++void UMEntryThunkCode::Poison()
++{
++    LIMITED_METHOD_CONTRACT;
++
++    m_movEAX = X86_INSTR_INT3;
++}
++
+ UMEntryThunk* UMEntryThunk::Decode(LPVOID pCallback)
+ {
+     LIMITED_METHOD_CONTRACT;
+diff --git a/src/vm/loaderallocator.cpp b/src/vm/loaderallocator.cpp
+index 70c8cab..5a3f8f5 100644
+--- a/src/vm/loaderallocator.cpp
++++ b/src/vm/loaderallocator.cpp
+@@ -1005,7 +1005,9 @@ void LoaderAllocator::Init(BaseDomain *pDomain, BYTE *pExecutableHeapMemory)
+                                                                       dwExecutableHeapReserveSize,
+                                                                       LOADERHEAP_PROFILE_COUNTER,
+                                                                       NULL,
+-                                                                      TRUE /* Make heap executable */);
++                                                                      TRUE /* Make heap executable */,
++                                                                      FALSE /* Disable zero-initialization (needed by UMEntryThunkCode::Poison) */
++                                                                      );
+         initReservedMem += dwExecutableHeapReserveSize;
+     }
+ 
+-- 
+1.9.1
+
+
+From 9f0bbb5adf7444d187a01b84ec3ba6d99e46b86f Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=EC=9D=B4=EC=B6=98=EC=84=9D/Developer=20Experience=20Lab?=
+ =?UTF-8?q?=28S/W=EC=84=BC=ED=84=B0=29/Senior=20Engineer/=EC=82=BC?=
+ =?UTF-8?q?=EC=84=B1=EC=A0=84=EC=9E=90?= <chunseok.lee@samsung.com>
+Date: Thu, 24 Aug 2017 07:27:41 +0900
+Subject: [PATCH 11/36] Enable sosplugin on ARM (#14)
+
+* Fix CreateDump-related undefined reference on non-AMD64/Linux platforms (#11635)
+
+* Enable DacStackWalk
+
+For ARM/Linux, DacUnwindStackFrame failed to unwind stack frame due to
+the mismatch between RUNTIME_FUNCTION and IMAGE_ARM_RUNTIME_FUNCTION_ENTRY.
+
+ClrStack SOS command currently does not work due to this bug.
+
+This commit fixes this mismatch and re-enables ClrStack SOS command.
+---
+ src/ToolBox/SOS/Strike/CMakeLists.txt |  1 +
+ src/ToolBox/SOS/Strike/strike.cpp     | 10 +++++-----
+ src/unwinder/arm/unwinder_arm.cpp     | 14 +++++---------
+ 3 files changed, 11 insertions(+), 14 deletions(-)
+
+diff --git a/src/ToolBox/SOS/Strike/CMakeLists.txt b/src/ToolBox/SOS/Strike/CMakeLists.txt
+index ff5f864..65c3f95 100644
+--- a/src/ToolBox/SOS/Strike/CMakeLists.txt
++++ b/src/ToolBox/SOS/Strike/CMakeLists.txt
+@@ -150,6 +150,7 @@ if(CLR_CMAKE_PLATFORM_ARCH_AMD64)
+       SOS_LIBRARY 
+       createdump_lib
+     )
++    add_definitions(-DCREATE_DUMP_SUPPORTED)
+   endif(CLR_CMAKE_PLATFORM_LINUX)
+   set(SOS_SOURCES_ARCH
+     disasmX86.cpp
+diff --git a/src/ToolBox/SOS/Strike/strike.cpp b/src/ToolBox/SOS/Strike/strike.cpp
+index 1fff17f..7e01635 100644
+--- a/src/ToolBox/SOS/Strike/strike.cpp
++++ b/src/ToolBox/SOS/Strike/strike.cpp
+@@ -14370,17 +14370,17 @@ _EFN_GetManagedObjectFieldInfo(
+ 
+ #ifdef FEATURE_PAL
+ 
+-#ifdef __linux__
++#ifdef CREATE_DUMP_SUPPORTED
+ #include <dumpcommon.h>
+ #include "datatarget.h"
+ extern bool CreateDumpForSOS(const char* programPath, const char* dumpPathTemplate, pid_t pid, MINIDUMP_TYPE minidumpType, ICLRDataTarget* dataTarget);
+ extern bool g_diagnostics;
+-#endif // __linux__
++#endif // CREATE_DUMP_SUPPORTED
+ 
+ DECLARE_API(CreateDump)
+ {
+     INIT_API();
+-#ifdef __linux__
++#ifdef CREATE_DUMP_SUPPORTED
+     StringHolder sFileName;
+     BOOL normal = FALSE;
+     BOOL withHeap = FALSE;
+@@ -14440,9 +14440,9 @@ DECLARE_API(CreateDump)
+     {
+         Status = E_FAIL;
+     } 
+-#else // __linux__
++#else // CREATE_DUMP_SUPPORTED
+     ExtErr("CreateDump not supported on this platform\n");
+-#endif // __linux__
++#endif // CREATE_DUMP_SUPPORTED
+     return Status;
+ }
+ 
+diff --git a/src/unwinder/arm/unwinder_arm.cpp b/src/unwinder/arm/unwinder_arm.cpp
+index 6b1f686..6228b01 100644
+--- a/src/unwinder/arm/unwinder_arm.cpp
++++ b/src/unwinder/arm/unwinder_arm.cpp
+@@ -647,7 +647,7 @@ Return Value:
+ HRESULT
+ RtlpUnwindFunctionCompact(
+     __in ULONG ControlPcRva,
+-    __in PIMAGE_ARM_RUNTIME_FUNCTION_ENTRY FunctionEntry,
++    __in PT_RUNTIME_FUNCTION FunctionEntry,
+     __inout PT_CONTEXT ContextRecord,
+     __out PULONG EstablisherFrame,
+     __deref_opt_out_opt PEXCEPTION_ROUTINE *HandlerRoutine,
+@@ -917,7 +917,7 @@ HRESULT
+ RtlpUnwindFunctionFull(
+     __in ULONG ControlPcRva,
+     __in ULONG ImageBase,
+-    __in PIMAGE_ARM_RUNTIME_FUNCTION_ENTRY FunctionEntry,
++    __in PT_RUNTIME_FUNCTION FunctionEntry,
+     __inout PT_CONTEXT ContextRecord,
+     __out PULONG EstablisherFrame,
+     __deref_opt_out_opt PEXCEPTION_ROUTINE *HandlerRoutine,
+@@ -1444,7 +1444,7 @@ BOOL OOPStackUnwinderArm::Unwind(T_CONTEXT * pContext)
+     DWORD startingPc = pContext->Pc;
+     DWORD startingSp = pContext->Sp;
+     
+-    IMAGE_ARM_RUNTIME_FUNCTION_ENTRY Rfe;
++    T_RUNTIME_FUNCTION Rfe;
+     if (FAILED(GetFunctionEntry(DBS_EXTEND64(pContext->Pc), &Rfe, sizeof(Rfe))))
+         return FALSE;
+ 
+@@ -1511,17 +1511,13 @@ PEXCEPTION_ROUTINE RtlVirtualUnwind(
+     PEXCEPTION_ROUTINE handlerRoutine;
+     HRESULT res;
+     
+-    IMAGE_ARM_RUNTIME_FUNCTION_ENTRY rfe;
+-    rfe.BeginAddress = FunctionEntry->BeginAddress;
+-    rfe.UnwindData = FunctionEntry->UnwindData;
+-    
+     ARM_UNWIND_PARAMS unwindParams;
+     unwindParams.ContextPointers = ContextPointers;
+     
+     if ((FunctionEntry->UnwindData & 3) != 0) 
+     {
+         res = RtlpUnwindFunctionCompact(ControlPc - ImageBase,
+-                                        &rfe,
++                                        FunctionEntry,
+                                         ContextRecord,
+                                         EstablisherFrame,
+                                         &handlerRoutine,
+@@ -1533,7 +1529,7 @@ PEXCEPTION_ROUTINE RtlVirtualUnwind(
+     {
+         res = RtlpUnwindFunctionFull(ControlPc - ImageBase,
+                                     ImageBase,
+-                                    &rfe,
++                                    FunctionEntry,
+                                     ContextRecord,
+                                     EstablisherFrame,
+                                     &handlerRoutine,
+-- 
+1.9.1
+
+
+From b6f26e11e9a17e9a334b035ba0d7f9de5ac49b64 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=EC=9D=B4=EC=B6=98=EC=84=9D/Developer=20Experience=20Lab?=
+ =?UTF-8?q?=28S/W=EC=84=BC=ED=84=B0=29/Senior=20Engineer/=EC=82=BC?=
+ =?UTF-8?q?=EC=84=B1=EC=A0=84=EC=9E=90?= <chunseok.lee@samsung.com>
+Date: Thu, 24 Aug 2017 07:28:09 +0900
+Subject: [PATCH 12/36] Add -pie to linker option (#16)
+
+There have been no -pie linker option.
+This patch adds -pie linker option into crossgen, ildasm, ilasm, and
+corerun, coreconsole
+---
+ src/coreclr/hosts/unixcoreconsole/CMakeLists.txt | 2 ++
+ src/coreclr/hosts/unixcorerun/CMakeLists.txt     | 2 ++
+ src/ilasm/CMakeLists.txt                         | 2 ++
+ src/ildasm/exe/CMakeLists.txt                    | 1 +
+ src/tools/crossgen/CMakeLists.txt                | 1 +
+ 5 files changed, 8 insertions(+)
+
+diff --git a/src/coreclr/hosts/unixcoreconsole/CMakeLists.txt b/src/coreclr/hosts/unixcoreconsole/CMakeLists.txt
+index 2daeaab..15d6d38 100644
+--- a/src/coreclr/hosts/unixcoreconsole/CMakeLists.txt
++++ b/src/coreclr/hosts/unixcoreconsole/CMakeLists.txt
+@@ -31,4 +31,6 @@ if(NOT CLR_CMAKE_PLATFORM_ANDROID)
+   )
+ endif()
+ 
++set_target_properties(coreconsole PROPERTIES LINK_FLAGS -pie)
++
+ install_clr(coreconsole)
+diff --git a/src/coreclr/hosts/unixcorerun/CMakeLists.txt b/src/coreclr/hosts/unixcorerun/CMakeLists.txt
+index 07beaae..85499c8 100644
+--- a/src/coreclr/hosts/unixcorerun/CMakeLists.txt
++++ b/src/coreclr/hosts/unixcorerun/CMakeLists.txt
+@@ -32,4 +32,6 @@ if(NOT CLR_CMAKE_PLATFORM_ANDROID)
+   )
+ endif()
+ 
++set_target_properties(corerun PROPERTIES LINK_FLAGS -pie)
++
+ install_clr(corerun)
+diff --git a/src/ilasm/CMakeLists.txt b/src/ilasm/CMakeLists.txt
+index 9e99d02..5668d1f 100644
+--- a/src/ilasm/CMakeLists.txt
++++ b/src/ilasm/CMakeLists.txt
+@@ -64,6 +64,8 @@ if(CLR_CMAKE_PLATFORM_UNIX)
+     palrt
+   )
+ 
++  set_target_properties(ilasm PROPERTIES LINK_FLAGS -pie)
++
+   # FreeBSD and NetBSD implement dlopen(3) in libc
+   if(NOT CMAKE_SYSTEM_NAME STREQUAL FreeBSD AND NOT CMAKE_SYSTEM_NAME STREQUAL NetBSD)
+     target_link_libraries(ilasm
+diff --git a/src/ildasm/exe/CMakeLists.txt b/src/ildasm/exe/CMakeLists.txt
+index bf09be5..cfd5db0 100644
+--- a/src/ildasm/exe/CMakeLists.txt
++++ b/src/ildasm/exe/CMakeLists.txt
+@@ -54,6 +54,7 @@ if(CLR_CMAKE_PLATFORM_UNIX)
+         coreclrpal
+         palrt
+     )
++    set_target_properties(ildasm PROPERTIES LINK_FLAGS -pie)
+ 
+     # FreeBSD and NetBSD implement dlopen(3) in libc
+     if(NOT CMAKE_SYSTEM_NAME STREQUAL FreeBSD AND NOT CMAKE_SYSTEM_NAME STREQUAL NetBSD)
+diff --git a/src/tools/crossgen/CMakeLists.txt b/src/tools/crossgen/CMakeLists.txt
+index 3b9c5ba..b8e9cf7 100644
+--- a/src/tools/crossgen/CMakeLists.txt
++++ b/src/tools/crossgen/CMakeLists.txt
+@@ -50,6 +50,7 @@ if(CLR_CMAKE_PLATFORM_UNIX)
+         coreclrpal
+         palrt
+     )
++    set_target_properties(crossgen PROPERTIES LINK_FLAGS -pie)
+ else()
+     target_link_libraries(crossgen
+         advapi32
+-- 
+1.9.1
+
+
+From e9f635587a0c8386e9bfae2013f8bda0964ea14c Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=EC=9D=B4=EC=B6=98=EC=84=9D/Developer=20Experience=20Lab?=
+ =?UTF-8?q?=28S/W=EC=84=BC=ED=84=B0=29/Senior=20Engineer/=EC=82=BC?=
+ =?UTF-8?q?=EC=84=B1=EC=A0=84=EC=9E=90?= <chunseok.lee@samsung.com>
+Date: Thu, 24 Aug 2017 08:55:26 +0900
+Subject: [PATCH 13/36] Revert "Add -pie to linker option (#16)"
+
+This reverts commit c220f1608407a74c6c0f4e7145953453b0573fcb.
+---
+ src/coreclr/hosts/unixcoreconsole/CMakeLists.txt | 2 --
+ src/coreclr/hosts/unixcorerun/CMakeLists.txt     | 2 --
+ src/ilasm/CMakeLists.txt                         | 2 --
+ src/ildasm/exe/CMakeLists.txt                    | 1 -
+ src/tools/crossgen/CMakeLists.txt                | 1 -
+ 5 files changed, 8 deletions(-)
+
+diff --git a/src/coreclr/hosts/unixcoreconsole/CMakeLists.txt b/src/coreclr/hosts/unixcoreconsole/CMakeLists.txt
+index 15d6d38..2daeaab 100644
+--- a/src/coreclr/hosts/unixcoreconsole/CMakeLists.txt
++++ b/src/coreclr/hosts/unixcoreconsole/CMakeLists.txt
+@@ -31,6 +31,4 @@ if(NOT CLR_CMAKE_PLATFORM_ANDROID)
+   )
+ endif()
+ 
+-set_target_properties(coreconsole PROPERTIES LINK_FLAGS -pie)
+-
+ install_clr(coreconsole)
+diff --git a/src/coreclr/hosts/unixcorerun/CMakeLists.txt b/src/coreclr/hosts/unixcorerun/CMakeLists.txt
+index 85499c8..07beaae 100644
+--- a/src/coreclr/hosts/unixcorerun/CMakeLists.txt
++++ b/src/coreclr/hosts/unixcorerun/CMakeLists.txt
+@@ -32,6 +32,4 @@ if(NOT CLR_CMAKE_PLATFORM_ANDROID)
+   )
+ endif()
+ 
+-set_target_properties(corerun PROPERTIES LINK_FLAGS -pie)
+-
+ install_clr(corerun)
+diff --git a/src/ilasm/CMakeLists.txt b/src/ilasm/CMakeLists.txt
+index 5668d1f..9e99d02 100644
+--- a/src/ilasm/CMakeLists.txt
++++ b/src/ilasm/CMakeLists.txt
+@@ -64,8 +64,6 @@ if(CLR_CMAKE_PLATFORM_UNIX)
+     palrt
+   )
+ 
+-  set_target_properties(ilasm PROPERTIES LINK_FLAGS -pie)
+-
+   # FreeBSD and NetBSD implement dlopen(3) in libc
+   if(NOT CMAKE_SYSTEM_NAME STREQUAL FreeBSD AND NOT CMAKE_SYSTEM_NAME STREQUAL NetBSD)
+     target_link_libraries(ilasm
+diff --git a/src/ildasm/exe/CMakeLists.txt b/src/ildasm/exe/CMakeLists.txt
+index cfd5db0..bf09be5 100644
+--- a/src/ildasm/exe/CMakeLists.txt
++++ b/src/ildasm/exe/CMakeLists.txt
+@@ -54,7 +54,6 @@ if(CLR_CMAKE_PLATFORM_UNIX)
+         coreclrpal
+         palrt
+     )
+-    set_target_properties(ildasm PROPERTIES LINK_FLAGS -pie)
+ 
+     # FreeBSD and NetBSD implement dlopen(3) in libc
+     if(NOT CMAKE_SYSTEM_NAME STREQUAL FreeBSD AND NOT CMAKE_SYSTEM_NAME STREQUAL NetBSD)
+diff --git a/src/tools/crossgen/CMakeLists.txt b/src/tools/crossgen/CMakeLists.txt
+index b8e9cf7..3b9c5ba 100644
+--- a/src/tools/crossgen/CMakeLists.txt
++++ b/src/tools/crossgen/CMakeLists.txt
+@@ -50,7 +50,6 @@ if(CLR_CMAKE_PLATFORM_UNIX)
+         coreclrpal
+         palrt
+     )
+-    set_target_properties(crossgen PROPERTIES LINK_FLAGS -pie)
+ else()
+     target_link_libraries(crossgen
+         advapi32
+-- 
+1.9.1
+
+
+From 6b2a3ed5103ca11bb928ccf94b6b50bfdbb3d115 Mon Sep 17 00:00:00 2001
+From: Jonghyun Park <parjong@gmail.com>
+Date: Wed, 23 Aug 2017 05:56:01 +0900
+Subject: [PATCH 14/36] Fix inconsistency between GetHasCode and Equals
+ (#13513)
+
+---
+ src/mscorlib/src/System/MulticastDelegate.cs | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/src/mscorlib/src/System/MulticastDelegate.cs b/src/mscorlib/src/System/MulticastDelegate.cs
+index 988bf2b..1d701f0 100644
+--- a/src/mscorlib/src/System/MulticastDelegate.cs
++++ b/src/mscorlib/src/System/MulticastDelegate.cs
+@@ -452,6 +452,17 @@ namespace System
+             if (IsUnmanagedFunctionPtr())
+                 return ValueType.GetHashCodeOfPtr(_methodPtr) ^ ValueType.GetHashCodeOfPtr(_methodPtrAux);
+ 
++            if (_invocationCount != (IntPtr)0)
++            {
++                var t = _invocationList as Delegate;
++
++                if (t != null)
++                {
++                    // this is a secure/wrapper delegate so we need to unwrap and check the inner one
++                    return t.GetHashCode();
++                }
++            }
++
+             Object[] invocationList = _invocationList as Object[];
+             if (invocationList == null)
+             {
+-- 
+1.9.1
+
+
+From 275abfda0a2ba0bf70ca6d16a1fc13b9453c2b49 Mon Sep 17 00:00:00 2001
+From: Jonghyun Park <parjong@gmail.com>
+Date: Tue, 29 Aug 2017 10:11:24 +0900
+Subject: [PATCH 15/36] Cherry-pick #13586
+
+---
+ src/ToolBox/SOS/Strike/strike.cpp | 31 ++++++++++++++++++-------------
+ src/ToolBox/SOS/Strike/util.h     |  7 +++++--
+ 2 files changed, 23 insertions(+), 15 deletions(-)
+
+diff --git a/src/ToolBox/SOS/Strike/strike.cpp b/src/ToolBox/SOS/Strike/strike.cpp
+index 7e01635..2e20b28 100644
+--- a/src/ToolBox/SOS/Strike/strike.cpp
++++ b/src/ToolBox/SOS/Strike/strike.cpp
+@@ -320,15 +320,20 @@ DECLARE_API(IP2MD)
+ // (MAX_STACK_FRAMES is also used by x86 to prevent infinite loops in _EFN_StackTrace)
+ #define MAX_STACK_FRAMES 1000
+ 
+-#ifdef _TARGET_WIN64_
++#if defined(_TARGET_WIN64_)
++#define DEBUG_STACK_CONTEXT AMD64_CONTEXT
++#elif defined(_TARGET_ARM_) // _TARGET_WIN64_
++#define DEBUG_STACK_CONTEXT ARM_CONTEXT
++#endif // _TARGET_ARM_
+ 
++#ifdef DEBUG_STACK_CONTEXT
+ // I use a global set of frames for stack walking on win64 because the debugger's
+ // GetStackTrace function doesn't provide a way to find out the total size of a stackwalk,
+ // and I'd like to have a reasonably big maximum without overflowing the stack by declaring
+ // the buffer locally and I also want to get a managed trace in a low memory environment
+ // (so no dynamic allocation if possible).
+ DEBUG_STACK_FRAME g_Frames[MAX_STACK_FRAMES];
+-AMD64_CONTEXT g_X64FrameContexts[MAX_STACK_FRAMES];
++DEBUG_STACK_CONTEXT g_FrameContexts[MAX_STACK_FRAMES];
+ 
+ static HRESULT
+ GetContextStackTrace(PULONG pnumFrames)
+@@ -339,7 +344,7 @@ GetContextStackTrace(PULONG pnumFrames)
+     // Do we have advanced capability?
+     if ((hr = g_ExtControl->QueryInterface(__uuidof(IDebugControl4), (void **)&debugControl4)) == S_OK)
+     {
+-        // GetContextStackTrace fills g_X64FrameContexts as an array of 
++        // GetContextStackTrace fills g_FrameContexts as an array of
+         // contexts packed as target architecture contexts. We cannot 
+         // safely cast this as an array of CROSS_PLATFORM_CONTEXT, since 
+         // sizeof(CROSS_PLATFORM_CONTEXT) != sizeof(TGT_CONTEXT)
+@@ -348,7 +353,7 @@ GetContextStackTrace(PULONG pnumFrames)
+             0,
+             g_Frames,
+             MAX_STACK_FRAMES,
+-            g_X64FrameContexts,
++            g_FrameContexts,
+             MAX_STACK_FRAMES*g_targetMachine->GetContextSize(),
+             g_targetMachine->GetContextSize(),
+             pnumFrames);
+@@ -358,7 +363,7 @@ GetContextStackTrace(PULONG pnumFrames)
+     return hr;
+ }
+ 
+-#endif // _TARGET_WIN64_
++#endif // DEBUG_STACK_CONTEXT
+ 
+ /**********************************************************************\
+ * Routine Description:                                                 *
+@@ -12040,7 +12045,7 @@ public:
+             return;
+         }
+ 
+-#ifdef _TARGET_WIN64_
++#ifdef DEBUG_STACK_CONTEXT
+         PDEBUG_STACK_FRAME currentNativeFrame = NULL;
+         ULONG numNativeFrames = 0;
+         if (bFull)
+@@ -12053,7 +12058,7 @@ public:
+             }
+             currentNativeFrame = &g_Frames[0];
+         }
+-#endif // _TARGET_WIN64_
++#endif // DEBUG_STACK_CONTEXT
+         
+         unsigned int refCount = 0, errCount = 0;
+         ArrayHolder<SOSStackRefData> pRefs = NULL;
+@@ -12079,7 +12084,7 @@ public:
+             if (SUCCEEDED(frameDataResult) && FrameData.frameAddr)
+                 sp = FrameData.frameAddr;
+ 
+-#ifdef _TARGET_WIN64_
++#ifdef DEBUG_STACK_CONTEXT
+             while ((numNativeFrames > 0) && (currentNativeFrame->StackOffset <= sp))
+             {
+                 if (currentNativeFrame->StackOffset != sp)
+@@ -12089,7 +12094,7 @@ public:
+                 currentNativeFrame++;
+                 numNativeFrames--;
+             }
+-#endif // _TARGET_WIN64_
++#endif // DEBUG_STACK_CONTEXT
+ 
+             // Print the stack pointer.
+             out.WriteColumn(0, sp);
+@@ -12138,14 +12143,14 @@ public:
+ 
+         } while (pStackWalk->Next() == S_OK);
+ 
+-#ifdef _TARGET_WIN64_
++#ifdef DEBUG_STACK_CONTEXT
+         while (numNativeFrames > 0)
+         {
+             PrintNativeStackFrame(out, currentNativeFrame, bSuppressLines);
+             currentNativeFrame++;
+             numNativeFrames--;
+         }
+-#endif // _TARGET_WIN64_
++#endif // DEBUG_STACK_CONTEXT
+     }
+     
+     static HRESULT PrintManagedFrameContext(IXCLRDataStackWalk *pStackWalk)
+@@ -13321,7 +13326,7 @@ HRESULT CALLBACK ImplementEFNStackTrace(
+                 {
+                     // below we cast the i-th AMD64_CONTEXT to CROSS_PLATFORM_CONTEXT
+                     AppendContext (pTransitionContexts, *puiTransitionContextCount, 
+-                        &transitionContextCount, uiSizeOfContext, (CROSS_PLATFORM_CONTEXT*)(&(g_X64FrameContexts[i])));
++                        &transitionContextCount, uiSizeOfContext, (CROSS_PLATFORM_CONTEXT*)(&(g_FrameContexts[i])));
+                 }
+                 else
+                 {
+@@ -13354,7 +13359,7 @@ HRESULT CALLBACK ImplementEFNStackTrace(
+                 if (puiTransitionContextCount)
+                 {
+                     AppendContext (pTransitionContexts, *puiTransitionContextCount, 
+-                        &transitionContextCount, uiSizeOfContext, (CROSS_PLATFORM_CONTEXT*)(&(g_X64FrameContexts[i])));
++                        &transitionContextCount, uiSizeOfContext, (CROSS_PLATFORM_CONTEXT*)(&(g_FrameContexts[i])));
+                 }
+                 else
+                 {
+diff --git a/src/ToolBox/SOS/Strike/util.h b/src/ToolBox/SOS/Strike/util.h
+index 6d0e796..bbf97b9 100644
+--- a/src/ToolBox/SOS/Strike/util.h
++++ b/src/ToolBox/SOS/Strike/util.h
+@@ -2519,8 +2519,8 @@ typedef struct{
+ 
+ /// ARM Context
+ #define ARM_MAX_BREAKPOINTS_CONST     8
+-#define ARM_MAX_WATCHPOINTS_CONST     4
+-typedef struct {
++#define ARM_MAX_WATCHPOINTS_CONST     1
++typedef DECLSPEC_ALIGN(8) struct {
+ 
+     DWORD ContextFlags;
+ 
+@@ -2544,6 +2544,7 @@ typedef struct {
+     DWORD Cpsr;
+ 
+     DWORD Fpscr;
++    DWORD Padding;
+     union {
+         M128A_XPLAT Q[16];
+         ULONGLONG D[32];
+@@ -2555,6 +2556,8 @@ typedef struct {
+     DWORD Wvr[ARM_MAX_WATCHPOINTS_CONST];
+     DWORD Wcr[ARM_MAX_WATCHPOINTS_CONST];
+ 
++    DWORD Padding2[2];
++
+ } ARM_CONTEXT;
+ 
+ // On ARM this mask is or'ed with the address of code to get an instruction pointer
+-- 
+1.9.1
+
+
+From 8e38cfbaf45147c4361123a306d5b50c667a899e Mon Sep 17 00:00:00 2001
+From: CHUNSEOK LEE <chunseok.lee@samsung.com>
+Date: Wed, 2 Aug 2017 09:02:14 +0900
+Subject: [PATCH 16/36] callsignalhandlerwrapper patch
+
+Change-Id: I38630f9d02733aab5890b46afda39fd6e45461db
+---
+ src/pal/src/arch/arm/callsignalhandlerwrapper.S | 10 ++++++----
+ src/pal/src/arch/arm/signalhandlerhelper.cpp    |  2 ++
+ 2 files changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/src/pal/src/arch/arm/callsignalhandlerwrapper.S b/src/pal/src/arch/arm/callsignalhandlerwrapper.S
+index 266e4fd..b6288c4 100644
+--- a/src/pal/src/arch/arm/callsignalhandlerwrapper.S
++++ b/src/pal/src/arch/arm/callsignalhandlerwrapper.S
+@@ -18,12 +18,14 @@ C_FUNC(SignalHandlerWorkerReturnOffset\Alignment):
+ // address set to SignalHandlerWorkerReturn during SIGSEGV handling.
+ // It enables the unwinder to unwind stack from the handling code to the actual failure site.
+ NESTED_ENTRY CallSignalHandlerWrapper\Alignment, _TEXT, NoHandler
+-    sub     sp, sp, #(8 + \Alignment) // red zone + alignment
+-    stmfd   sp!, {r7, lr}
++    alloc_stack     (8 + \Alignment)
++//    PROLOG_PUSH  "{r7, lr}"
++    .save {r7, r11, lr, pc}
+     bl      EXTERNAL_C_FUNC(signal_handler_worker)
+ LOCAL_LABEL(SignalHandlerWorkerReturn\Alignment):
+-    ldmfd   sp!, {r7, lr}
+-    bx      lr
++//    EPILOG_POP "{r7, lr}"
++//    free_stack (8 + \Alignment)
++//    bx      lr
+ NESTED_END CallSignalHandlerWrapper\Alignment, _TEXT
+ 
+ .endm
+diff --git a/src/pal/src/arch/arm/signalhandlerhelper.cpp b/src/pal/src/arch/arm/signalhandlerhelper.cpp
+index e1ad460..3936204 100644
+--- a/src/pal/src/arch/arm/signalhandlerhelper.cpp
++++ b/src/pal/src/arch/arm/signalhandlerhelper.cpp
+@@ -48,7 +48,9 @@ void ExecuteHandlerOnOriginalStack(int code, siginfo_t *siginfo, void *context,
+     // Build fake stack frame to enable the stack unwinder to unwind from signal_handler_worker to the faulting instruction
+     // pushed LR
+     *--sp = (size_t)MCREG_Pc(ucontext->uc_mcontext);
++    *--sp = (size_t)MCREG_Lr(ucontext->uc_mcontext);
+     // pushed frame pointer
++    *--sp = (size_t)MCREG_R11(ucontext->uc_mcontext);
+     *--sp = (size_t)MCREG_R7(ucontext->uc_mcontext); 
+ 
+     // Switch the current context to the signal_handler_worker and the original stack
+-- 
+1.9.1
+
+
+From 2427902ddfff7dd868b79d95865afee5c3a257c4 Mon Sep 17 00:00:00 2001
+From: CHUNSEOK LEE <chunseok.lee@samsung.com>
+Date: Fri, 25 Aug 2017 09:50:17 +0900
+Subject: [PATCH 17/36] clear cache after NI reloc
+
+---
+ src/vm/peimagelayout.cpp | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/vm/peimagelayout.cpp b/src/vm/peimagelayout.cpp
+index 34ba4d8..5dc0e64 100644
+--- a/src/vm/peimagelayout.cpp
++++ b/src/vm/peimagelayout.cpp
+@@ -227,6 +227,8 @@ void PEImageLayout::ApplyBaseRelocations()
+ #ifdef _TARGET_ARM_
+             case IMAGE_REL_BASED_THUMB_MOV32:
+                 PutThumb2Mov32((UINT16 *)address, GetThumb2Mov32((UINT16 *)address) + delta);
++
++                ClrFlushInstructionCache(address, 8);
+                 break;
+ #endif
+ 
+-- 
+1.9.1
+
+
+From d88953cc229dcbf5d93aa04711ee599b3d073094 Mon Sep 17 00:00:00 2001
+From: Jonghyun Park <parjong@gmail.com>
+Date: Tue, 8 Aug 2017 01:27:16 +0900
+Subject: [PATCH 18/36] Support FEATURE_GDBJIT_FRAME (including NI & IL_Stub)
+
+---
+ src/vm/CMakeLists.txt |    3 +
+ src/vm/gdbjit.cpp     | 1108 ++++++++++++++++++++++++++++++++++---------------
+ src/vm/gdbjit.h       |   13 +-
+ src/vm/prestub.cpp    |   29 +-
+ src/vm/util.cpp       |   10 +-
+ 5 files changed, 813 insertions(+), 350 deletions(-)
+
+diff --git a/src/vm/CMakeLists.txt b/src/vm/CMakeLists.txt
+index c610d3c..835e31c 100644
+--- a/src/vm/CMakeLists.txt
++++ b/src/vm/CMakeLists.txt
+@@ -31,6 +31,9 @@ if(FEATURE_GDBJIT)
+     )
+     add_definitions(-DFEATURE_GDBJIT)
+ endif(FEATURE_GDBJIT)
++if(FEATURE_GDBJIT_FRAME)
++    add_definitions(-DFEATURE_GDBJIT_FRAME)
++endif(FEATURE_GDBJIT_FRAME)
+ 
+ set(VM_SOURCES_DAC_AND_WKS_COMMON
+     appdomain.cpp
+diff --git a/src/vm/gdbjit.cpp b/src/vm/gdbjit.cpp
+index ace6b76..5a3f074 100644
+--- a/src/vm/gdbjit.cpp
++++ b/src/vm/gdbjit.cpp
+@@ -648,46 +648,6 @@ struct jit_descriptor __jit_debug_descriptor = { 1, 0, 0, 0 };
+ 
+ // END of GDB JIT interface
+ 
+-/* Predefined section names */
+-const char* SectionNames[] = {
+-    "",
+-    ".text",
+-    ".shstrtab",
+-    ".debug_str",
+-    ".debug_abbrev",
+-    ".debug_info",
+-    ".debug_pubnames",
+-    ".debug_pubtypes",
+-    ".debug_line",
+-    ".symtab",
+-    ".strtab"
+-    /* After the last (.strtab) section zero or more .thunk_* sections are generated.
+-
+-       Each .thunk_* section contains a single .thunk_#.
+-       These symbols are mapped to methods (or trampolines) called by currently compiled method. */
+-};
+-
+-const int SectionNamesCount = sizeof(SectionNames) / sizeof(SectionNames[0]); // Does not include .thunk_* sections
+-
+-/* Static data for section headers */
+-struct SectionHeader {
+-    uint32_t m_type;
+-    uint64_t m_flags;
+-} Sections[] = {
+-    {SHT_NULL, 0},
+-    {SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR},
+-    {SHT_STRTAB, 0},
+-    {SHT_PROGBITS, SHF_MERGE | SHF_STRINGS },
+-    {SHT_PROGBITS, 0},
+-    {SHT_PROGBITS, 0},
+-    {SHT_PROGBITS, 0},
+-    {SHT_PROGBITS, 0},
+-    {SHT_PROGBITS, 0},
+-    {SHT_SYMTAB, 0},
+-    {SHT_STRTAB, 0},
+-    {SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR}
+-};
+-
+ /* Static data for .debug_str section */
+ const char* DebugStrings[] = {
+   "CoreCLR", "" /* module name */, "" /* module path */
+@@ -1748,8 +1708,661 @@ static int getNextPrologueIndex(int from, const SymbolsInfo *lines, int nlines)
+     return -1;
+ }
+ 
++static inline bool isListedModule(const WCHAR *wszModuleFile)
++{
++    static NewArrayHolder<WCHAR> wszModuleNames = nullptr;
++    static DWORD cBytesNeeded = 0;
++
++    // Get names of interesting modules from environment
++    if (wszModuleNames == nullptr && cBytesNeeded == 0)
++    {
++        DWORD cCharsNeeded = GetEnvironmentVariableW(W("CORECLR_GDBJIT"), NULL, 0);
++
++        if (cCharsNeeded == 0)
++        {
++            cBytesNeeded = 0xffffffff;
++            return false;
++        }
++
++        WCHAR *wszModuleNamesBuf = new WCHAR[cCharsNeeded+1];
++
++        cCharsNeeded = GetEnvironmentVariableW(W("CORECLR_GDBJIT"), wszModuleNamesBuf, cCharsNeeded);
++
++        if (cCharsNeeded == 0)
++        {
++            delete[] wszModuleNamesBuf;
++            cBytesNeeded = 0xffffffff;
++            return false;
++        }
++
++        wszModuleNames = wszModuleNamesBuf;
++        cBytesNeeded = cCharsNeeded + 1;
++    }
++    else if (wszModuleNames == nullptr)
++    {
++        return false;
++    }
++
++    _ASSERTE(wszModuleNames != nullptr && cBytesNeeded > 0);
++
++    BOOL isUserDebug = FALSE;
++
++    NewArrayHolder<WCHAR> wszModuleName = new WCHAR[cBytesNeeded];
++    LPWSTR pComma = wcsstr(wszModuleNames, W(","));
++    LPWSTR tmp = wszModuleNames;
++
++    while (pComma != NULL)
++    {
++        wcsncpy(wszModuleName, tmp, pComma - tmp);
++        wszModuleName[pComma - tmp] = W('\0');
++
++        if (wcscmp(wszModuleName, wszModuleFile) == 0)
++        {
++            isUserDebug = TRUE;
++            break;
++        }
++        tmp = pComma + 1;
++        pComma = wcsstr(tmp, W(","));
++    }
++    if (isUserDebug == FALSE)
++    {
++        wcsncpy(wszModuleName, tmp, wcslen(tmp));
++        wszModuleName[wcslen(tmp)] = W('\0');
++        if (wcscmp(wszModuleName, wszModuleFile) == 0)
++        {
++            isUserDebug = TRUE;
++        }
++    }
++
++    return isUserDebug;
++}
++
+ static NotifyGdb::AddrSet codeAddrs;
+ 
++class Elf_SectionTracker
++{
++    private:
++        unsigned int m_Flag;
++
++    private:
++        NewArrayHolder<char>  m_NamePtr;
++        unsigned int          m_NameLen;
++
++    private:
++        unsigned int m_Ind;
++        unsigned int m_Off;
++        unsigned int m_Len;
++
++    private:
++        Elf_Shdr m_Hdr;
++
++    private:
++        Elf_SectionTracker *m_Next;
++
++    public:
++        Elf_SectionTracker(const char *name, unsigned ind, unsigned off, uint32_t type, uint64_t flags);
++        ~Elf_SectionTracker();
++
++    public:
++        bool NeedHeaderUpdate() const;
++        void DisableHeaderUpdate();
++
++    public:
++        unsigned int GetIndex() const   { return m_Ind; }
++        unsigned int GetOffset() const  { return m_Off; }
++        unsigned int GetSize() const    { return m_Len; }
++
++    public:
++        const char *GetName() const     { return m_NamePtr; }
++        unsigned int GetNameLen() const { return m_NameLen; }
++
++    public:
++        Elf_SectionTracker *GetNext(void);
++        void SetNext(Elf_SectionTracker *next);
++
++    public:
++        void Forward(unsigned int len);
++
++    public:
++        Elf_Shdr *Header(void);
++        const Elf_Shdr *Header(void) const;
++
++};
++
++Elf_SectionTracker::Elf_SectionTracker(const char *name,
++                                       unsigned ind, unsigned off,
++                                       uint32_t type, uint64_t flags)
++    : m_Flag(0),
++      m_NamePtr(nullptr),
++      m_NameLen(0),
++      m_Ind(ind),
++      m_Off(off),
++      m_Len(0),
++      m_Next(nullptr)
++{
++    if (name)
++    {
++        unsigned int len = strlen(name);
++        char *ptr = new char[len + 1];
++
++        strncpy(ptr, name, len + 1);
++
++        m_NamePtr = ptr;
++        m_NameLen = len;
++    }
++
++    m_Hdr.sh_type       = type;
++    m_Hdr.sh_flags      = flags;
++    m_Hdr.sh_name       = 0;
++    m_Hdr.sh_addr       = 0;
++    m_Hdr.sh_offset     = 0;
++    m_Hdr.sh_size       = 0;
++    m_Hdr.sh_link       = SHN_UNDEF;
++    m_Hdr.sh_info       = 0;
++    m_Hdr.sh_addralign  = 1;
++    m_Hdr.sh_entsize    = 0;
++}
++
++Elf_SectionTracker::~Elf_SectionTracker()
++{
++}
++
++#define ESTF_NO_HEADER_UPDATE 0x00000001
++
++bool Elf_SectionTracker::NeedHeaderUpdate() const
++{
++    return !(m_Flag & ESTF_NO_HEADER_UPDATE);
++}
++
++void Elf_SectionTracker::DisableHeaderUpdate()
++{
++    m_Flag |= ESTF_NO_HEADER_UPDATE;
++}
++
++void Elf_SectionTracker::Forward(unsigned int len)
++{
++    m_Len += len;
++}
++
++void Elf_SectionTracker::SetNext(Elf_SectionTracker *next)
++{
++    m_Next = next;
++}
++
++Elf_SectionTracker *Elf_SectionTracker::GetNext(void)
++{
++    return m_Next;
++}
++
++Elf_Shdr *Elf_SectionTracker::Header(void)
++{
++    return &m_Hdr;
++}
++
++const Elf_Shdr *Elf_SectionTracker::Header(void) const
++{
++    return &m_Hdr;
++}
++
++class Elf_Buffer
++{
++    private:
++        NewArrayHolder<char>  m_Ptr;
++        unsigned int          m_Len;
++        unsigned int          m_Pos;
++
++    public:
++        Elf_Buffer(unsigned int len);
++
++    private:
++        char *Ensure(unsigned int len);
++        void Forward(unsigned int len);
++
++    public:
++        unsigned int GetPos() const
++        {
++            return m_Pos;
++        }
++
++        char *GetPtr(unsigned int off = 0)
++        {
++            return m_Ptr.GetValue() + off;
++        }
++
++    public:
++        char *Reserve(unsigned int len);
++        template <typename T> T *ReserveT(unsigned int len = sizeof(T))
++        {
++            _ASSERTE(len >= sizeof(T));
++            return reinterpret_cast<T *>(Reserve(len));
++        }
++
++    public:
++        void Append(const char *src, unsigned int len);
++        template <typename T> void AppendT(T *src)
++        {
++            Append(reinterpret_cast<const char *>(src), sizeof(T));
++        }
++};
++
++Elf_Buffer::Elf_Buffer(unsigned int len)
++    : m_Ptr(new char[len])
++    , m_Len(len)
++    , m_Pos(0)
++{
++}
++
++char *Elf_Buffer::Ensure(unsigned int len)
++{
++    bool bAdjusted = false;
++
++    while (m_Pos + len > m_Len)
++    {
++        m_Len *= 2;
++        bAdjusted = true;
++    }
++
++    if (bAdjusted)
++    {
++        char *ptr = new char [m_Len * 2];
++        memcpy(ptr, m_Ptr.GetValue(), m_Pos);
++        m_Ptr = ptr;
++    }
++
++    return GetPtr(m_Pos);
++}
++
++void Elf_Buffer::Forward(unsigned int len)
++{
++    m_Pos += len;
++}
++
++char *Elf_Buffer::Reserve(unsigned int len)
++{
++    char *ptr = Ensure(len);
++    Forward(len);
++    return ptr;
++}
++
++void Elf_Buffer::Append(const char *src, unsigned int len)
++{
++    char *dst = Reserve(len);
++    memcpy(dst, src, len);
++}
++
++#define ELF_BUILDER_TEXT_SECTION_INDEX 1
++
++class Elf_Builder
++{
++    private:
++        Elf_Buffer m_Buffer;
++
++    private:
++        unsigned int          m_SectionCount;
++        Elf_SectionTracker   *m_First;
++        Elf_SectionTracker   *m_Last;
++        Elf_SectionTracker   *m_Curr;
++
++    public:
++        Elf_Builder();
++        ~Elf_Builder();
++
++    public:
++        unsigned int GetSectionCount(void) { return m_SectionCount; }
++
++    public:
++        void Initialize(PCODE codePtr, TADDR codeLen);
++
++    public:
++        Elf_SectionTracker *OpenSection(const char *name, uint32_t type, uint64_t flags);
++        void CloseSection();
++
++    public:
++        char *Reserve(unsigned int len);
++        template <typename T> T *ReserveT(unsigned int len = sizeof(T))
++        {
++            _ASSERTE(len >= sizeof(T));
++            return reinterpret_cast<T *>(Reserve(len));
++        }
++
++    public:
++        void Append(const char *src, unsigned int len);
++        template <typename T> void AppendT(T *src)
++        {
++            Append(reinterpret_cast<const char *>(src), sizeof(T));
++        }
++
++    public:
++        void Finalize(void);
++
++    public:
++        char *Export(UINT64 *len);
++};
++
++Elf_Builder::Elf_Builder()
++    : m_Buffer(128),
++      m_SectionCount(0),
++      m_First(nullptr),
++      m_Last(nullptr),
++      m_Curr(nullptr)
++{
++}
++
++Elf_Builder::~Elf_Builder()
++{
++    Elf_SectionTracker *curr = m_First;
++
++    while (curr)
++    {
++        Elf_SectionTracker *next = curr->GetNext();
++        delete curr;
++        curr = next;
++    }
++}
++
++void Elf_Builder::Initialize(PCODE codePtr, TADDR codeLen)
++{
++    //
++    // Reserve ELF Header
++    //
++    m_Buffer.Reserve(sizeof(Elf_Ehdr));
++
++    //
++    // Create NULL section
++    //
++    Elf_SectionTracker *null = OpenSection("", SHT_NULL, 0);
++    {
++        null->DisableHeaderUpdate();
++        null->Header()->sh_addralign = 0;
++    }
++    CloseSection();
++
++    //
++    // Create '.text' section
++    //
++    Elf_SectionTracker *text = OpenSection(".text", SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR);
++    {
++        text->DisableHeaderUpdate();
++        text->Header()->sh_addr = codePtr;
++        text->Header()->sh_size = codeLen;
++
++        _ASSERTE(text->GetIndex() == ELF_BUILDER_TEXT_SECTION_INDEX);
++    }
++    CloseSection();
++}
++
++char *Elf_Builder::Reserve(unsigned int len)
++{
++    _ASSERTE(m_Curr != nullptr && "Section should be opened before");
++    char *ptr = m_Buffer.Reserve(len);
++    m_Curr->Forward(len);
++    return ptr;
++}
++
++void  Elf_Builder::Append(const char *src, unsigned int len)
++{
++    _ASSERTE(m_Curr != nullptr && "Section should be opened before");
++    char *dst = Reserve(len);
++    memcpy(dst, src, len);
++}
++
++Elf_SectionTracker *Elf_Builder::OpenSection(const char *name, uint32_t type, uint64_t flags)
++{
++    _ASSERTE(m_Curr == nullptr && "Section should be closed before");
++
++    Elf_SectionTracker *next = new Elf_SectionTracker(name, m_SectionCount, m_Buffer.GetPos(), type, flags);
++
++    if (m_First == NULL)
++    {
++        m_First = next;
++    }
++
++    if (m_Last != NULL)
++    {
++        m_Last->SetNext(next);
++    }
++
++    m_SectionCount++;
++
++    m_Last = next;
++    m_Curr = next;
++
++    return next;
++}
++
++void Elf_Builder::CloseSection()
++{
++    _ASSERTE(m_Curr != nullptr && "Section should be opened before");
++    m_Curr = nullptr;
++}
++
++char *Elf_Builder::Export(UINT64 *pLen)
++{
++    unsigned int len = m_Buffer.GetPos();
++    const char  *src = m_Buffer.GetPtr();
++    char        *dst = new char[len];
++
++    memcpy(dst, src, len);
++
++    if (pLen)
++    {
++        *pLen = len;
++    }
++
++    return dst;
++}
++
++void Elf_Builder::Finalize()
++{
++    //
++    // Create '.shstrtab'
++    //
++    Elf_SectionTracker *shstrtab = OpenSection(".shstrtab", SHT_STRTAB, 0);
++    {
++        Elf_SectionTracker *curr = m_First;
++
++        while (curr)
++        {
++            unsigned int off = shstrtab->GetSize();
++            unsigned int len = curr->GetNameLen();
++
++            char *dst = Reserve(len + 1);
++            memcpy(dst, curr->GetName(), len);
++            dst[len] = '\0';
++
++            curr->Header()->sh_name = off;
++
++            curr = curr->GetNext();
++        }
++    }
++    CloseSection();
++
++    //
++    // Create Section Header(s) Table
++    //
++    unsigned int shtOffset = m_Buffer.GetPos();
++    {
++        Elf_SectionTracker *curr = m_First;
++
++        while (curr)
++        {
++            if (curr->NeedHeaderUpdate())
++            {
++                curr->Header()->sh_offset  = curr->GetOffset();
++                curr->Header()->sh_size    = curr->GetSize();
++            }
++            m_Buffer.AppendT(curr->Header());
++            curr = curr->GetNext();
++        }
++    }
++
++    //
++    // Update ELF Header
++    //
++    Elf_Ehdr *elfHeader = new (m_Buffer.GetPtr()) Elf_Ehdr;
++
++#ifdef _TARGET_ARM_
++    elfHeader->e_flags = EF_ARM_EABI_VER5;
++#ifdef ARM_SOFTFP
++    elfHeader->e_flags |= EF_ARM_SOFT_FLOAT;
++#else
++    elfHeader->e_flags |= EF_ARM_VFP_FLOAT;
++#endif
++#endif
++    elfHeader->e_shoff = shtOffset;
++    elfHeader->e_shentsize = sizeof(Elf_Shdr);
++    elfHeader->e_shnum = m_SectionCount;
++    elfHeader->e_shstrndx = shstrtab->GetIndex();
++}
++
++#ifdef FEATURE_GDBJIT_FRAME
++struct __attribute__((packed)) Length
++{
++    UINT32 value;
++
++    Length &operator=(UINT32 n)
++    {
++        value = n;
++        return *this;
++    }
++
++    Length()
++    {
++        value = 0;
++    }
++};
++
++struct __attribute__((packed)) CIE
++{
++    Length  length;
++    UINT32  id;
++    UINT8   version;
++    UINT8   augmentation;
++    UINT8   code_alignment_factor;
++    INT8    data_alignment_factor;
++    UINT8   return_address_register;
++    UINT8   instructions[0];
++};
++
++struct __attribute__((packed)) FDE
++{
++    Length  length;
++    UINT32  cie;
++    PCODE   initial_location;
++    TADDR   address_range;
++    UINT8   instructions[0];
++};
++
++static void BuildDebugFrame(Elf_Builder &elfBuilder, PCODE pCode, TADDR codeSize)
++{
++#if defined(_TARGET_ARM_)
++    const unsigned int code_alignment_factor = 2;
++    const int data_alignment_factor = -4;
++
++    UINT8 cieCode[] = {
++        // DW_CFA_def_cfa 13[sp], 0
++        0x0c, 0x0d, 0x00,
++    };
++
++    UINT8 fdeCode[] = {
++        // DW_CFA_advance_loc 1
++       0x02, 0x01,
++       // DW_CFA_def_cfa_offset 8
++       0x0e, 0x08,
++       // DW_CFA_offset 11(r11), -8(= -4 * 2)
++       (0x02 << 6) | 0x0b, 0x02,
++       // DW_CFA_offset 14(lr),  -4(= -4 * 1)
++       (0x02 << 6) | 0x0e, 0x01,
++       // DW_CFA_def_cfa_register 11(r11)
++       0x0d, 0x0b,
++    };
++#elif defined(_TARGET_X86_)
++    const unsigned int code_alignment_factor = 1;
++    const int data_alignment_factor = -4;
++
++    UINT8 cieCode[] = {
++        // DW_CFA_def_cfa 4(esp), 4
++        0x0c, 0x04, 0x04,
++        // DW_CFA_offset 8(eip), -4(= -4 * 1)
++       (0x02 << 6) | 0x08, 0x01,
++    };
++
++    UINT8 fdeCode[] = {
++        // DW_CFA_advance_loc 1
++       0x02, 0x01,
++       // DW_CFA_def_cfa_offset 8
++       0x0e, 0x08,
++       // DW_CFA_offset 5(ebp), -8(= -4 * 2)
++       (0x02 << 6) | 0x05, 0x02,
++       // DW_CFA_def_cfa_register 5(ebp)
++       0x0d, 0x05,
++    };
++#elif defined(_TARGET_AMD64_)
++    const unsigned int code_alignment_factor = 1;
++    const int data_alignment_factor = -8;
++
++    UINT8 cieCode[] = {
++      // DW_CFA_def_cfa 7(rsp), 8
++      0x0c, 0x07, 0x08,
++      // DW_CFA_offset 16, -16 (= -8 * 2)
++      (0x02 << 6) | 0x10, 0x01,
++    };
++
++    UINT8 fdeCode[] = {
++      // DW_CFA_advance_loc(1)
++      0x02, 0x01,
++      // DW_CFA_def_cfa_offset(16)
++      0x0e, 0x10,
++      // DW_CFA_offset 6, -16 (= -8 * 2)
++      (0x02 << 6) | 0x06, 0x02,
++      // DW_CFA_def_cfa_register(6)
++      0x0d, 0x06,
++    };
++#else
++#error "Unsupported architecture"
++#endif
++
++    elfBuilder.OpenSection(".debug_frame", SHT_PROGBITS, 0);
++
++    //
++    // Common Information Entry
++    //
++    int cieLen = ALIGN_UP(sizeof(CIE) + sizeof(cieCode), ADDRESS_SIZE) + sizeof(Length);
++
++    CIE *pCIE = elfBuilder.ReserveT<CIE>(cieLen);
++
++    memset(pCIE, 0, cieLen);
++
++    pCIE->length  = cieLen - sizeof(Length);
++    pCIE->id      = 0xffffffff;
++    pCIE->version = 3;
++    pCIE->augmentation = 0;
++    Leb128Encode(code_alignment_factor, reinterpret_cast<char *>(&pCIE->code_alignment_factor), 1);
++    Leb128Encode(data_alignment_factor, reinterpret_cast<char *>(&pCIE->data_alignment_factor), 1);
++
++    pCIE->return_address_register = 0;
++
++    memcpy(&pCIE->instructions, cieCode, sizeof(cieCode));
++
++    //
++    // Frame Description Entry
++    //
++    int fdeLen = ALIGN_UP((sizeof(FDE) + sizeof(fdeCode)), ADDRESS_SIZE) + sizeof(Length);
++
++    FDE *pFDE = elfBuilder.ReserveT<FDE>(fdeLen);
++
++    memset(pFDE, 0, fdeLen);
++
++    pFDE->length = fdeLen - sizeof(Length);
++    pFDE->cie = 0;
++    pFDE->initial_location = pCode;
++    pFDE->address_range = codeSize;
++    memcpy(&pFDE->instructions, fdeCode, sizeof(fdeCode));
++
++    elfBuilder.CloseSection();
++}
++#endif // FEATURE_GDBJIT_FRAME
++
+ /* Create ELF/DWARF debug info for jitted method */
+ void NotifyGdb::MethodCompiled(MethodDesc* methodDescPtr)
+ {
+@@ -1765,19 +2378,21 @@ void NotifyGdb::MethodCompiled(MethodDesc* methodDescPtr)
+ 
+ void NotifyGdb::OnMethodCompiled(MethodDesc* methodDescPtr)
+ {
+-    int symbolCount = 0;
+-    NewArrayHolder<Elf_Symbol> symbolNames;
+-
+     PCODE pCode = methodDescPtr->GetNativeCode();
++
+     if (pCode == NULL)
++    {
+         return;
+-    unsigned int symInfoLen = 0;
+-    NewArrayHolder<SymbolsInfo> symInfo = nullptr;
+-    LocalsInfo locals;
++    }
+ 
+     /* Get method name & size of jitted code */
+-    LPCUTF8 methodName = methodDescPtr->GetName();
+     EECodeInfo codeInfo(pCode);
++
++    if (!codeInfo.IsValid())
++    {
++        return;
++    }
++
+     TADDR codeSize = codeInfo.GetCodeManager()->GetFunctionSize(codeInfo.GetGCInfoToken());
+ 
+     pCode = PCODEToPINSTR(pCode);
+@@ -1800,59 +2415,76 @@ void NotifyGdb::OnMethodCompiled(MethodDesc* methodDescPtr)
+     if (length == 0)
+         return;
+ 
+-    static NewArrayHolder<WCHAR> wszModuleNames = nullptr;
+-    DWORD cCharsNeeded = 0;
++    bool bNotify = false;
+ 
+-    // Get names of interesting modules from environment
+-    if (wszModuleNames == nullptr)
++    Elf_Builder elfBuilder;
++
++    elfBuilder.Initialize(pCode, codeSize);
++
++#ifdef FEATURE_GDBJIT_FRAME
+     {
+-        cCharsNeeded = GetEnvironmentVariableW(W("CORECLR_GDBJIT"), NULL, 0);
++        bool bEmitted = EmitFrameInfo(elfBuilder, pCode, codeSize);
++        bNotify = bNotify || bEmitted;
++    }
++#endif
+ 
+-        if(cCharsNeeded == 0)
+-            return;
+-        wszModuleNames = new WCHAR[cCharsNeeded+1];
+-        cCharsNeeded = GetEnvironmentVariableW(W("CORECLR_GDBJIT"), wszModuleNames, cCharsNeeded);
+-        if(cCharsNeeded == 0)
+-            return;
++    if (isListedModule(wszModuleFile))
++    {
++        bool bEmitted = EmitDebugInfo(elfBuilder, methodDescPtr, pCode, codeSize, szModuleFile);
++        bNotify = bNotify || bEmitted;
+     }
+-    else
++
++    if (!bNotify)
+     {
+-        cCharsNeeded = wcslen(wszModuleNames);
++        return;
+     }
+ 
+-    BOOL isUserDebug = FALSE;
++    elfBuilder.Finalize();
+ 
+-    NewArrayHolder<WCHAR> wszModuleName = new WCHAR[cCharsNeeded+1];
+-    LPWSTR pComma = wcsstr(wszModuleNames, W(","));
+-    LPWSTR tmp = wszModuleNames;
++    /* Create GDB JIT structures */
++    NewHolder<jit_code_entry> jit_symbols = new jit_code_entry;
+ 
+-    while (pComma != NULL)
+-    {
+-        wcsncpy(wszModuleName, tmp, pComma - tmp);
+-        wszModuleName[pComma - tmp] = W('\0');
++    /* Fill the new entry */
++    jit_symbols->next_entry = jit_symbols->prev_entry = 0;
++    jit_symbols->symfile_addr = elfBuilder.Export(&jit_symbols->symfile_size);
+ 
+-        if (wcscmp(wszModuleName, wszModuleFile) == 0)
+-        {
+-            isUserDebug = TRUE;
+-            break;
+-        }
+-        tmp = pComma + 1;
+-        pComma = wcsstr(tmp, W(","));
+-    }
+-    if (isUserDebug == FALSE)
++    /* Link into list */
++    jit_code_entry *head = __jit_debug_descriptor.first_entry;
++    __jit_debug_descriptor.first_entry = jit_symbols;
++    if (head != 0)
+     {
+-        wcsncpy(wszModuleName, tmp, wcslen(tmp));
+-        wszModuleName[wcslen(tmp)] = W('\0');
+-        if (wcscmp(wszModuleName, wszModuleFile) == 0)
+-        {
+-            isUserDebug = TRUE;
+-        }
++        jit_symbols->next_entry = head;
++        head->prev_entry = jit_symbols;
+     }
+ 
+-    if (isUserDebug == FALSE)
+-    {
+-        return;
+-    }
++    jit_symbols.SuppressRelease();
++
++    /* Notify the debugger */
++    __jit_debug_descriptor.relevant_entry = jit_symbols;
++    __jit_debug_descriptor.action_flag = JIT_REGISTER_FN;
++    __jit_debug_register_code();
++}
++
++#ifdef FEATURE_GDBJIT_FRAME
++bool NotifyGdb::EmitFrameInfo(Elf_Builder &elfBuilder, PCODE pCode, TADDR codeSize)
++{
++    BuildDebugFrame(elfBuilder, pCode, codeSize);
++    return true;
++}
++#endif // FEATURE_GDBJIT_FRAME
++
++bool NotifyGdb::EmitDebugInfo(Elf_Builder &elfBuilder, MethodDesc* methodDescPtr, PCODE pCode, TADDR codeSize, const char *szModuleFile)
++{
++    unsigned int thunkIndexBase = elfBuilder.GetSectionCount();
++
++    LPCUTF8 methodName = methodDescPtr->GetName();
++
++    int symbolCount = 0;
++    NewArrayHolder<Elf_Symbol> symbolNames;
++
++    unsigned int symInfoLen = 0;
++    NewArrayHolder<SymbolsInfo> symInfo = nullptr;
++    LocalsInfo locals;
+ 
+     NewHolder<TK_TypeInfoMap> pTypeMap = new TK_TypeInfoMap();
+ 
+@@ -1860,7 +2492,7 @@ void NotifyGdb::OnMethodCompiled(MethodDesc* methodDescPtr)
+     HRESULT hr = GetDebugInfoFromPDB(methodDescPtr, symInfo, symInfoLen, locals);
+     if (FAILED(hr) || symInfoLen == 0)
+     {
+-        return;
++        return false;
+     }
+ 
+     int method_count = countFuncs(symInfo, symInfoLen);
+@@ -1871,7 +2503,7 @@ void NotifyGdb::OnMethodCompiled(MethodDesc* methodDescPtr)
+     /* Collect addresses of thunks called by method */
+     if (!CollectCalledMethods(pCalledMethods, (TADDR)methodDescPtr->GetNativeCode(), method, symbolNames, symbolCount))
+     {
+-        return;
++        return false;
+     }
+     pCH->SetCalledMethods(NULL);
+ 
+@@ -1887,7 +2519,7 @@ void NotifyGdb::OnMethodCompiled(MethodDesc* methodDescPtr)
+ 
+     if (firstLineIndex >= symInfoLen)
+     {
+-        return;
++        return false;
+     }
+ 
+     int start_index = getNextPrologueIndex(0, symInfo, symInfoLen);
+@@ -1921,19 +2553,19 @@ void NotifyGdb::OnMethodCompiled(MethodDesc* methodDescPtr)
+         start_index = end_index;
+     }
+ 
+-    MemBuf elfHeader, sectHeaders, sectStr, sectSymTab, sectStrTab, dbgInfo, dbgAbbrev, dbgPubname, dbgPubType, dbgLine,
+-        dbgStr, elfFile;
++    MemBuf sectSymTab, sectStrTab, dbgInfo, dbgAbbrev, dbgPubname, dbgPubType, dbgLine,
++        dbgStr;
+ 
+     /* Build .debug_abbrev section */
+     if (!BuildDebugAbbrev(dbgAbbrev))
+     {
+-        return;
++        return false;
+     }
+ 
+     /* Build .debug_line section */
+     if (!BuildLineTable(dbgLine, pCode, codeSize, symInfo, symInfoLen))
+     {
+-        return;
++        return false;
+     }
+     
+     DebugStrings[1] = szModuleFile;
+@@ -1941,13 +2573,13 @@ void NotifyGdb::OnMethodCompiled(MethodDesc* methodDescPtr)
+     /* Build .debug_str section */
+     if (!BuildDebugStrings(dbgStr, pTypeMap, method))
+     {
+-        return;
++        return false;
+     }
+     
+     /* Build .debug_info section */
+     if (!BuildDebugInfo(dbgInfo, pTypeMap, method))
+     {
+-        return;
++        return false;
+     }
+ 
+     for (int i = 0; i < method.GetCount(); ++i)
+@@ -1959,13 +2591,13 @@ void NotifyGdb::OnMethodCompiled(MethodDesc* methodDescPtr)
+     /* Build .debug_pubname section */
+     if (!BuildDebugPub(dbgPubname, methodName, dbgInfo.MemSize, 0x28))
+     {
+-        return;
++        return false;
+     }
+     
+     /* Build debug_pubtype section */
+     if (!BuildDebugPub(dbgPubType, "int", dbgInfo.MemSize, 0x1a))
+     {
+-        return;
++        return false;
+     }
+     
+     /* Build .strtab section */
+@@ -1979,158 +2611,64 @@ void NotifyGdb::OnMethodCompiled(MethodDesc* methodDescPtr)
+     }
+     if (!BuildStringTableSection(sectStrTab, symbolNames, symbolCount))
+     {
+-        return;
++        return false;
+     }
+     /* Build .symtab section */
+-    if (!BuildSymbolTableSection(sectSymTab, pCode, codeSize, method, symbolNames, symbolCount))
++    if (!BuildSymbolTableSection(sectSymTab, pCode, codeSize, method, symbolNames, symbolCount, thunkIndexBase))
+     {
+-        return;
++        return false;
+     }
+ 
+-    /* Build section headers table and section names table */
+-    BuildSectionTables(sectHeaders, sectStr, method, symbolCount);
+-
+-    /* Patch section offsets & sizes */
+-    long offset = sizeof(Elf_Ehdr);
+-    Elf_Shdr* pShdr = reinterpret_cast<Elf_Shdr*>(sectHeaders.MemPtr.GetValue());
+-    ++pShdr; // .text
+-    pShdr->sh_addr = pCode;
+-    pShdr->sh_size = codeSize;
+-    ++pShdr; // .shstrtab
+-    pShdr->sh_offset = offset;
+-    pShdr->sh_size = sectStr.MemSize;
+-    offset += sectStr.MemSize;
+-    ++pShdr; // .debug_str
+-    pShdr->sh_offset = offset;
+-    pShdr->sh_size = dbgStr.MemSize;
+-    offset += dbgStr.MemSize;
+-    ++pShdr; // .debug_abbrev
+-    pShdr->sh_offset = offset;
+-    pShdr->sh_size = dbgAbbrev.MemSize;
+-    offset += dbgAbbrev.MemSize;
+-    ++pShdr; // .debug_info
+-    pShdr->sh_offset = offset;
+-    pShdr->sh_size = dbgInfo.MemSize;
+-    offset += dbgInfo.MemSize;
+-    ++pShdr; // .debug_pubnames
+-    pShdr->sh_offset = offset;
+-    pShdr->sh_size = dbgPubname.MemSize;
+-    offset += dbgPubname.MemSize;
+-    ++pShdr; // .debug_pubtypes
+-    pShdr->sh_offset = offset;
+-    pShdr->sh_size = dbgPubType.MemSize;
+-    offset += dbgPubType.MemSize;
+-    ++pShdr; // .debug_line
+-    pShdr->sh_offset = offset;
+-    pShdr->sh_size = dbgLine.MemSize;
+-    offset += dbgLine.MemSize;
+-    ++pShdr; // .symtab
+-    pShdr->sh_offset = offset;
+-    pShdr->sh_size = sectSymTab.MemSize;
+-    pShdr->sh_link = GetSectionIndex(".strtab");
+-    offset += sectSymTab.MemSize;
+-    ++pShdr; // .strtab
+-    pShdr->sh_offset = offset;
+-    pShdr->sh_size = sectStrTab.MemSize;
+-    offset += sectStrTab.MemSize;
+-
+-    // .thunks
+     for (int i = 1 + method.GetCount(); i < symbolCount; i++)
+     {
+-        ++pShdr;
+-        pShdr->sh_addr = PCODEToPINSTR(symbolNames[i].m_value);
+-        pShdr->sh_size = 8;
+-    }
++        char name[256];
+ 
+-    /* Build ELF header */
+-    if (!BuildELFHeader(elfHeader))
+-    {
+-        return;
++        sprintf_s(name, _countof(name), ".thunk_%i", i);
++
++        Elf_SectionTracker *thunk = elfBuilder.OpenSection(name, SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR);
++        thunk->DisableHeaderUpdate();
++        elfBuilder.CloseSection();
+     }
+-    Elf_Ehdr* header = reinterpret_cast<Elf_Ehdr*>(elfHeader.MemPtr.GetValue());
+-#ifdef _TARGET_ARM_
+-    header->e_flags = EF_ARM_EABI_VER5;
+-#ifdef ARM_SOFTFP
+-    header->e_flags |= EF_ARM_SOFT_FLOAT;
+-#else    
+-    header->e_flags |= EF_ARM_VFP_FLOAT;
+-#endif
+-#endif    
+-    header->e_shoff = offset;
+-    header->e_shentsize = sizeof(Elf_Shdr);
+-    int thunks_count = symbolCount - method.GetCount() - 1;
+-    header->e_shnum = SectionNamesCount + thunks_count;
+-    header->e_shstrndx = GetSectionIndex(".shstrtab");
+-
+-    /* Build ELF image in memory */
+-    elfFile.MemSize = elfHeader.MemSize + sectStr.MemSize + dbgStr.MemSize + dbgAbbrev.MemSize + dbgInfo.MemSize +
+-                      dbgPubname.MemSize + dbgPubType.MemSize + dbgLine.MemSize + sectSymTab.MemSize +
+-                      sectStrTab.MemSize + sectHeaders.MemSize;
+-    elfFile.MemPtr =  new char[elfFile.MemSize];
+-
+-    /* Copy section data */
+-    offset = 0;
+-    memcpy(elfFile.MemPtr, elfHeader.MemPtr, elfHeader.MemSize);
+-    offset += elfHeader.MemSize;
+-    memcpy(elfFile.MemPtr + offset, sectStr.MemPtr, sectStr.MemSize);
+-    offset +=  sectStr.MemSize;
+-    memcpy(elfFile.MemPtr + offset, dbgStr.MemPtr, dbgStr.MemSize);
+-    offset +=  dbgStr.MemSize;
+-    memcpy(elfFile.MemPtr + offset, dbgAbbrev.MemPtr, dbgAbbrev.MemSize);
+-    offset +=  dbgAbbrev.MemSize;
+-    memcpy(elfFile.MemPtr + offset, dbgInfo.MemPtr, dbgInfo.MemSize);
+-    offset +=  dbgInfo.MemSize;
+-    memcpy(elfFile.MemPtr + offset, dbgPubname.MemPtr, dbgPubname.MemSize);
+-    offset +=  dbgPubname.MemSize;
+-    memcpy(elfFile.MemPtr + offset, dbgPubType.MemPtr, dbgPubType.MemSize);
+-    offset +=  dbgPubType.MemSize;
+-    memcpy(elfFile.MemPtr + offset, dbgLine.MemPtr, dbgLine.MemSize);
+-    offset +=  dbgLine.MemSize;
+-    memcpy(elfFile.MemPtr + offset, sectSymTab.MemPtr, sectSymTab.MemSize);
+-    offset +=  sectSymTab.MemSize;
+-    memcpy(elfFile.MemPtr + offset, sectStrTab.MemPtr, sectStrTab.MemSize);
+-    offset +=  sectStrTab.MemSize;
+-
+-    memcpy(elfFile.MemPtr + offset, sectHeaders.MemPtr, sectHeaders.MemSize);
+-
+-    elfFile.MemPtr.SuppressRelease();
+-
+-#ifdef GDBJIT_DUMPELF
+-    DumpElf(methodName, elfFile);
+-#endif
+ 
+-    /* Create GDB JIT structures */
+-    NewHolder<jit_code_entry> jit_symbols = new jit_code_entry;
++    elfBuilder.OpenSection(".debug_str", SHT_PROGBITS, SHF_MERGE | SHF_STRINGS);
++    elfBuilder.Append(dbgStr.MemPtr, dbgStr.MemSize);
++    elfBuilder.CloseSection();
+ 
+-    /* Fill the new entry */
+-    jit_symbols->next_entry = jit_symbols->prev_entry = 0;
+-    jit_symbols->symfile_addr = elfFile.MemPtr;
+-    jit_symbols->symfile_size = elfFile.MemSize;
+-    
+-    /* Link into list */
+-    jit_code_entry *head = __jit_debug_descriptor.first_entry;
+-    __jit_debug_descriptor.first_entry = jit_symbols;
+-    if (head != 0)
+-    {
+-        jit_symbols->next_entry = head;
+-        head->prev_entry = jit_symbols;
+-    }
+-    
+-    jit_symbols.SuppressRelease();
++    elfBuilder.OpenSection(".debug_abbrev", SHT_PROGBITS, 0);
++    elfBuilder.Append(dbgAbbrev.MemPtr, dbgAbbrev.MemSize);
++    elfBuilder.CloseSection();
+ 
+-    /* Notify the debugger */
+-    __jit_debug_descriptor.relevant_entry = jit_symbols;
+-    __jit_debug_descriptor.action_flag = JIT_REGISTER_FN;
+-    __jit_debug_register_code();
++    elfBuilder.OpenSection(".debug_info", SHT_PROGBITS, 0);
++    elfBuilder.Append(dbgInfo.MemPtr, dbgInfo.MemSize);
++    elfBuilder.CloseSection();
++
++    elfBuilder.OpenSection(".debug_pubnames", SHT_PROGBITS, 0);
++    elfBuilder.Append(dbgPubname.MemPtr, dbgPubname.MemSize);
++    elfBuilder.CloseSection();
++
++    elfBuilder.OpenSection(".debug_pubtypes", SHT_PROGBITS, 0);
++    elfBuilder.Append(dbgPubType.MemPtr, dbgPubType.MemSize);
++    elfBuilder.CloseSection();
++
++    elfBuilder.OpenSection(".debug_line", SHT_PROGBITS, 0);
++    elfBuilder.Append(dbgLine.MemPtr, dbgLine.MemSize);
++    elfBuilder.CloseSection();
++
++    Elf_SectionTracker *strtab = elfBuilder.OpenSection(".strtab", SHT_STRTAB, 0);
++    elfBuilder.Append(sectStrTab.MemPtr, sectStrTab.MemSize);
++    elfBuilder.CloseSection();
++
++    Elf_SectionTracker *symtab = elfBuilder.OpenSection(".symtab", SHT_SYMTAB, 0);
++    elfBuilder.Append(sectSymTab.MemPtr, sectSymTab.MemSize);
++    symtab->Header()->sh_link = strtab->GetIndex();
++    symtab->Header()->sh_entsize = sizeof(Elf_Sym);
++    elfBuilder.CloseSection();
++
++    return true;
+ }
+ 
+ void NotifyGdb::MethodDropped(MethodDesc* methodDescPtr)
+ {
+-    static const int textSectionIndex = GetSectionIndex(".text");
+-
+-    if (textSectionIndex < 0)
+-        return;
+-
+     PCODE pCode = methodDescPtr->GetNativeCode();
+ 
+     if (pCode == NULL)
+@@ -2144,7 +2682,7 @@ void NotifyGdb::MethodDropped(MethodDesc* methodDescPtr)
+         
+         const Elf_Ehdr* pEhdr = reinterpret_cast<const Elf_Ehdr*>(ptr);
+         const Elf_Shdr* pShdr = reinterpret_cast<const Elf_Shdr*>(ptr + pEhdr->e_shoff);
+-        pShdr += textSectionIndex; // bump to .text section
++        pShdr += ELF_BUILDER_TEXT_SECTION_INDEX; // bump to .text section
+         if (pShdr->sh_addr == pCode)
+         {
+             /* Notify the debugger */
+@@ -2637,10 +3175,9 @@ bool NotifyGdb::BuildStringTableSection(MemBuf& buf, NewArrayHolder<Elf_Symbol>
+ 
+ /* Build ELF .symtab section */
+ bool NotifyGdb::BuildSymbolTableSection(MemBuf& buf, PCODE addr, TADDR codeSize, FunctionMemberPtrArrayHolder &method,
+-                                        NewArrayHolder<Elf_Symbol> &symbolNames, int symbolCount)
++                                        NewArrayHolder<Elf_Symbol> &symbolNames, int symbolCount,
++                                        unsigned int thunkIndexBase)
+ {
+-    static const int textSectionIndex = GetSectionIndex(".text");
+-
+     buf.MemSize = symbolCount * sizeof(Elf_Sym);
+     buf.MemPtr = new char[buf.MemSize];
+ 
+@@ -2659,7 +3196,7 @@ bool NotifyGdb::BuildSymbolTableSection(MemBuf& buf, PCODE addr, TADDR codeSize,
+         sym[i].setBindingAndType(STB_GLOBAL, STT_FUNC);
+         sym[i].st_other = 0;
+         sym[i].st_value = PINSTRToPCODE(symbolNames[i].m_value - addr);
+-        sym[i].st_shndx = textSectionIndex;
++        sym[i].st_shndx = ELF_BUILDER_TEXT_SECTION_INDEX;
+         sym[i].st_size = symbolNames[i].m_size;
+     }
+ 
+@@ -2668,7 +3205,7 @@ bool NotifyGdb::BuildSymbolTableSection(MemBuf& buf, PCODE addr, TADDR codeSize,
+         sym[i].st_name = symbolNames[i].m_off;
+         sym[i].setBindingAndType(STB_GLOBAL, STT_FUNC);
+         sym[i].st_other = 0;
+-        sym[i].st_shndx = SectionNamesCount + (i - (1 + method.GetCount())); // .thunks section index
++        sym[i].st_shndx = thunkIndexBase + (i - (1 + method.GetCount())); // .thunks section index
+         sym[i].st_size = 8;
+ #ifdef _TARGET_ARM_
+         sym[i].st_value = 1; // for THUMB code
+@@ -2679,97 +3216,6 @@ bool NotifyGdb::BuildSymbolTableSection(MemBuf& buf, PCODE addr, TADDR codeSize,
+     return true;
+ }
+ 
+-int NotifyGdb::GetSectionIndex(const char *sectName)
+-{
+-    for (int i = 0; i < SectionNamesCount; ++i)
+-        if (strcmp(SectionNames[i], sectName) == 0)
+-            return i;
+-    return -1;
+-}
+-
+-/* Build the ELF section headers table and section names table */
+-void NotifyGdb::BuildSectionTables(MemBuf& sectBuf, MemBuf& strBuf, FunctionMemberPtrArrayHolder &method,
+-                                   int symbolCount)
+-{
+-    static const int symtabSectionIndex = GetSectionIndex(".symtab");
+-    static const int nullSectionIndex = GetSectionIndex("");
+-
+-    const int thunks_count = symbolCount - 1 - method.GetCount();
+-
+-    // Approximate length of single section name.
+-    // Used only to reduce memory reallocations.
+-    static const int SECT_NAME_LENGTH = 11;
+-
+-    strBuf.Resize(SECT_NAME_LENGTH * (SectionNamesCount + thunks_count));
+-
+-    Elf_Shdr* sectionHeaders = new Elf_Shdr[SectionNamesCount + thunks_count];
+-    sectBuf.MemPtr = reinterpret_cast<char*>(sectionHeaders);
+-    sectBuf.MemSize = sizeof(Elf_Shdr) * (SectionNamesCount + thunks_count);
+-
+-    Elf_Shdr* pSh = sectionHeaders;
+-    uint32_t sectNameOffset = 0;
+-
+-    // Additional memory for remaining section names,
+-    // grows twice on each reallocation.
+-    int addSize = SECT_NAME_LENGTH;
+-
+-    // Fill section headers and names
+-    for (int i = 0; i < SectionNamesCount + thunks_count; ++i, ++pSh)
+-    {
+-        char thunkSectNameBuf[256]; // temporary buffer for .thunk_# section name
+-        const char *sectName;
+-
+-        bool isThunkSection = i >= SectionNamesCount;
+-        if (isThunkSection)
+-        {
+-            sprintf_s(thunkSectNameBuf, _countof(thunkSectNameBuf), ".thunk_%i", i);
+-            sectName = thunkSectNameBuf;
+-        }
+-        else
+-        {
+-            sectName = SectionNames[i];
+-        }
+-
+-        // Ensure that there is enough memory for section name,
+-        // reallocate if necessary.
+-        pSh->sh_name = sectNameOffset;
+-        sectNameOffset += strlen(sectName) + 1;
+-        if (sectNameOffset > strBuf.MemSize)
+-        {
+-            // Allocate more memory for remaining section names
+-            strBuf.Resize(sectNameOffset + addSize);
+-            addSize *= 2;
+-        }
+-
+-        strcpy(strBuf.MemPtr + pSh->sh_name, sectName);
+-
+-        // All .thunk_* sections have the same type and flags
+-        int index = isThunkSection ? SectionNamesCount : i;
+-        pSh->sh_type = Sections[index].m_type;
+-        pSh->sh_flags = Sections[index].m_flags;
+-
+-        pSh->sh_addr = 0;
+-        pSh->sh_offset = 0;
+-        pSh->sh_size = 0;
+-        pSh->sh_link = SHN_UNDEF;
+-        pSh->sh_info = 0;
+-        pSh->sh_addralign = i == nullSectionIndex ? 0 : 1;
+-        pSh->sh_entsize = i == symtabSectionIndex ? sizeof(Elf_Sym) : 0;
+-    }
+-
+-    // Set actual used size to avoid garbage in ELF section
+-    strBuf.MemSize = sectNameOffset;
+-}
+-
+-/* Build the ELF header */
+-bool NotifyGdb::BuildELFHeader(MemBuf& buf)
+-{
+-    Elf_Ehdr* header = new Elf_Ehdr;
+-    buf.MemPtr = reinterpret_cast<char*>(header);
+-    buf.MemSize = sizeof(Elf_Ehdr);
+-    return true;
+-}
+-
+ /* Split full path name into directory & file names */
+ void NotifyGdb::SplitPathname(const char* path, const char*& pathName, const char*& fileName)
+ {
+diff --git a/src/vm/gdbjit.h b/src/vm/gdbjit.h
+index 84b9109..ebd5a7a 100644
+--- a/src/vm/gdbjit.h
++++ b/src/vm/gdbjit.h
+@@ -324,6 +324,7 @@ public:
+ };
+ 
+ struct Elf_Symbol;
++class Elf_Builder;
+ 
+ class NotifyGdb
+ {
+@@ -404,12 +405,14 @@ private:
+ 
+     static void OnMethodCompiled(MethodDesc* methodDescPtr);
+ 
+-    static int GetSectionIndex(const char *sectName);
+-    static bool BuildELFHeader(MemBuf& buf);
+-    static void BuildSectionTables(MemBuf& sectBuf, MemBuf& strBuf, FunctionMemberPtrArrayHolder &method,
+-                                   int symbolCount);
++#ifdef FEATURE_GDBJIT_FRAME
++    static bool EmitFrameInfo(Elf_Builder &, PCODE pCode, TADDR codeSzie);
++#endif // FEATURE_GDBJIT_FRAME
++    static bool EmitDebugInfo(Elf_Builder &, MethodDesc* methodDescPtr, PCODE pCode, TADDR codeSize, const char *szModuleFile);
++
+     static bool BuildSymbolTableSection(MemBuf& buf, PCODE addr, TADDR codeSize, FunctionMemberPtrArrayHolder &method,
+-                                        NewArrayHolder<Elf_Symbol> &symbolNames, int symbolCount);
++                                        NewArrayHolder<Elf_Symbol> &symbolNames, int symbolCount,
++                                        unsigned int thunkIndexBase);
+     static bool BuildStringTableSection(MemBuf& strTab, NewArrayHolder<Elf_Symbol> &symbolNames, int symbolCount);
+     static bool BuildDebugStrings(MemBuf& buf, PTK_TypeInfoMap pTypeMap, FunctionMemberPtrArrayHolder &method);
+     static bool BuildDebugAbbrev(MemBuf& buf);
+diff --git a/src/vm/prestub.cpp b/src/vm/prestub.cpp
+index fccec51..88bd9de 100644
+--- a/src/vm/prestub.cpp
++++ b/src/vm/prestub.cpp
+@@ -52,7 +52,12 @@
+ #include "callcounter.h"
+ #endif
+ 
+-#ifndef DACCESS_COMPILE 
++#if defined(FEATURE_GDBJIT)
++#include "gdbjit.h"
++__declspec(thread) bool tls_isSymReaderInProgress = false;
++#endif
++
++#ifndef DACCESS_COMPILE
+ 
+ EXTERN_C void STDCALL ThePreStub();
+ 
+@@ -231,17 +236,13 @@ void DACNotifyCompilationFinished(MethodDesc *methodDesc)
+ 
+         _ASSERTE(modulePtr);
+ 
+-#ifndef FEATURE_GDBJIT
+         // Are we listed?
+         USHORT jnt = jn.Requested((TADDR) modulePtr, t);
+         if (jnt & CLRDATA_METHNOTIFY_GENERATED)
+         {
+             // If so, throw an exception!
+-#endif
+             DACNotify::DoJITNotification(methodDesc);
+-#ifndef FEATURE_GDBJIT
+         }
+-#endif
+     }
+ }
+ 
+@@ -678,6 +679,15 @@ Done:
+     LOG((LF_CORDB, LL_EVERYTHING, "MethodDesc::MakeJitWorker finished. Stub is" FMT_ADDR "\n",
+          DBG_ADDR(pCode)));
+ 
++#if defined(FEATURE_GDBJIT) && defined(FEATURE_PAL) && !defined(CROSSGEN_COMPILE)
++    if (!tls_isSymReaderInProgress)
++    {
++        tls_isSymReaderInProgress = true;
++        NotifyGdb::MethodCompiled(this);
++        tls_isSymReaderInProgress = false;
++    }
++#endif
++
+     return pCode;
+ }
+ 
+@@ -1568,6 +1578,15 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
+             }
+ #endif // FEATURE_INTERPRETER
+         } // end if (pCode == NULL)
++#if defined(FEATURE_GDBJIT) && defined(FEATURE_PAL) && !defined(CROSSGEN_COMPILE)
++        else if (!tls_isSymReaderInProgress)
++        {
++            tls_isSymReaderInProgress = true;
++            NotifyGdb::MethodCompiled(this);
++            tls_isSymReaderInProgress = false;
++        }
++#endif
++
+     } // end else if (IsIL() || IsNoMetadata())
+     else if (IsNDirect())
+     {
+diff --git a/src/vm/util.cpp b/src/vm/util.cpp
+index da7d18c..9d9800b 100644
+--- a/src/vm/util.cpp
++++ b/src/vm/util.cpp
+@@ -3315,7 +3315,6 @@ void InitializeClrNotifications()
+ 
+ #if defined(FEATURE_GDBJIT)
+ #include "gdbjit.h"
+-__declspec(thread) bool tls_isSymReaderInProgress = false;
+ #endif // FEATURE_GDBJIT
+ 
+ // called from the runtime
+@@ -3329,14 +3328,7 @@ void DACNotify::DoJITNotification(MethodDesc *MethodDescPtr)
+         MODE_PREEMPTIVE;
+     }
+     CONTRACTL_END;
+-#if defined(FEATURE_GDBJIT) && defined(FEATURE_PAL) && !defined(CROSSGEN_COMPILE)
+-    if(!tls_isSymReaderInProgress)
+-    {
+-        tls_isSymReaderInProgress = true;
+-        NotifyGdb::MethodCompiled(MethodDescPtr);
+-        tls_isSymReaderInProgress = false;
+-    }
+-#endif    
++
+     TADDR Args[2] = { JIT_NOTIFICATION, (TADDR) MethodDescPtr };
+     DACNotifyExceptionHelper(Args, 2);
+ }
+-- 
+1.9.1
+
+
+From eef4ae4f508fa9d1f4acb3ee533a3b8a756693e1 Mon Sep 17 00:00:00 2001
+From: CHUNSEOK LEE <chunseok.lee@samsung.com>
+Date: Fri, 18 Aug 2017 14:05:03 +0900
+Subject: [PATCH 19/36] Add profiling support
+
+Signed-off-by: CHUNSEOK LEE <chunseok.lee@samsung.com>
+---
+ Documentation/botr/clr-abi.md |  36 +++++-
+ clrfeatures.cmake             |   2 +-
+ src/jit/codegencommon.cpp     | 113 ++++++++++++++++-
+ src/jit/codegenxarch.cpp      |  38 +++++-
+ src/jit/compiler.cpp          |  23 ++++
+ src/jit/compiler.h            |   8 ++
+ src/jit/lclvars.cpp           |   2 +-
+ src/jit/target.h              |   9 +-
+ src/vm/CMakeLists.txt         |   1 +
+ src/vm/amd64/asmhelpers.S     | 289 ++++++++++++++++++++++++++++++++++++++++++
+ src/vm/amd64/profiler.cpp     |  12 ++
+ src/vm/amd64/unixstubs.cpp    |  15 ---
+ 12 files changed, 523 insertions(+), 25 deletions(-)
+ create mode 100644 src/vm/amd64/asmhelpers.S
+
+diff --git a/Documentation/botr/clr-abi.md b/Documentation/botr/clr-abi.md
+index a85bfa4..c0ec331 100644
+--- a/Documentation/botr/clr-abi.md
++++ b/Documentation/botr/clr-abi.md
+@@ -585,9 +585,9 @@ The CLR unwinder assumes any non-leaf frame was unwound as a result of a call. T
+ 
+ If the JIT gets passed `CORJIT_FLG_PROF_ENTERLEAVE`, then the JIT might need to insert native entry/exit/tail call probes. To determine for sure, the JIT must call GetProfilingHandle. This API returns as out parameters, the true dynamic boolean indicating if the JIT should actually insert the probes and a parameter to pass to the callbacks (typed as void*), with an optional indirection (used for NGEN). This parameter is always the first argument to all of the call-outs (thus placed in the usual first argument register `RCX` (AMD64) or `R0` (ARM, ARM64)).
+ 
+-Outside of the prolog (in a GC interruptible location), the JIT injects a call to `CORINFO_HELP_PROF_FCN_ENTER`. For AMD64, all argument registers will be homed into their caller-allocated stack locations (similar to varargs). For ARM and ARM64, all arguments are prespilled (again similar to varargs).
++Outside of the prolog (in a GC interruptible location), the JIT injects a call to `CORINFO_HELP_PROF_FCN_ENTER`. For AMD64,  on Windows all argument registers will be homed into their caller-allocated stack locations (similar to varargs), on Unix all argument registers will be stored in the inner structure. For ARM and ARM64, all arguments are prespilled (again similar to varargs).
+ 
+-After computing the return value and storing it in the correct register, but before any epilog code (including before a possible GS cookie check), the JIT injects a call to `CORINFO_HELP_PROF_FCN_LEAVE`. For AMD64 this call must preserve the return register: `RAX` or `XMM0`. For ARM, the return value will be moved from `R0` to `R2` (if it was in `R0`), `R1`, `R2`, and `S0/D0` must be preserved by the callee (longs will be `R2`, `R1` - note the unusual ordering of the registers, floats in `S0`, doubles in `D0`, smaller integrals in `R2`).
++After computing the return value and storing it in the correct register, but before any epilog code (including before a possible GS cookie check), the JIT injects a call to `CORINFO_HELP_PROF_FCN_LEAVE`. For AMD64 this call must preserve the return register: `RAX` or `XMM0` on Windows and `RAX` and `RDX` or `XMM0` and `XMM1` on Unix. For ARM, the return value will be moved from `R0` to `R2` (if it was in `R0`), `R1`, `R2`, and `S0/D0` must be preserved by the callee (longs will be `R2`, `R1` - note the unusual ordering of the registers, floats in `S0`, doubles in `D0`, smaller integrals in `R2`).
+ 
+ TODO: describe ARM64 profile leave conventions.
+ 
+@@ -667,3 +667,35 @@ The general rules outlined in the System V x86_64 ABI (described at http://www.x
+ 3. The JIT proactively generates frame register frames (with `RBP` as a frame register) in order to aid the native OS tooling for stack unwinding and the like.
+ 4. All the other internal VM contracts for PInvoke, EH, and generic support remains in place. Please see the relevant sections above for more details. Note, however, that the registers used are different on System V due to the different calling convention. For example, the integer argument registers are, in order, RDI, RSI, RDX, RCX, R8, and R9. Thus, where the first argument (typically, the "this" pointer) on Windows AMD64 goes in RCX, on System V it goes in RDI, and so forth.   
+ 5. Structs with explicit layout are always passed by value on the stack.
++6. The following table describes register usage according to the System V x86_64 ABI
++
++```
++| Register     | Usage                                   | Preserved across  |
++|              |                                         | function calls    |
++|--------------|-----------------------------------------|-------------------|
++| %rax         | temporary register; with variable argu- | No                |
++|              | ments passes information about the      |                   |
++|              | number of SSE registers used;           |                   |
++|              | 1st return argument                     |                   |
++| %rbx         | callee-saved register; optionally used  | Yes               |
++|              | as base pointer                         |                   |
++| %rcx         | used to pass 4st integer argument to    | No                |
++|              | to functions                            |                   |
++| %rdx         | used to pass 3rd argument to functions  | No                |
++|              | 2nd return register                     |                   |
++| %rsp         | stack pointer                           | Yes               |
++| %rbp         | callee-saved register; optionally used  | Yes               |
++|              | as frame pointer                        |                   |
++| %rsi         | used to pass 2nd argument to functions  | No                |
++| %rdi         | used to pass 1st argument to functions  | No                |
++| %r8          | used to pass 5th argument to functions  | No                |
++| %r9          | used to pass 6th argument to functions  | No                |
++| %r10         | temporary register, used for passing a  | No                |
++|              | function's static chain pointer         |                   |
++| %r11         | temporary register                      | No                |
++| %r12-%r15    | callee-saved registers                  | Yes               |
++| %xmm0-%xmm1  | used to pass and return floating point  | No                |
++|              | arguments                               |                   |
++| %xmm2-%xmm7  | used to pass floating point arguments   | No                |
++| %xmm8-%xmm15 | temporary registers                     | No                |
++```
+diff --git a/clrfeatures.cmake b/clrfeatures.cmake
+index f047c91..0e2801c 100644
+--- a/clrfeatures.cmake
++++ b/clrfeatures.cmake
+@@ -1,5 +1,5 @@
+ if(CLR_CMAKE_TARGET_TIZEN_LINUX)
+-  set(FEATURE_EVENT_TRACE 0)
++  set(FEATURE_EVENT_TRACE 1)
+ endif()
+ 
+ if(NOT DEFINED FEATURE_EVENT_TRACE)
+diff --git a/src/jit/codegencommon.cpp b/src/jit/codegencommon.cpp
+index 719299e..50f43fa 100644
+--- a/src/jit/codegencommon.cpp
++++ b/src/jit/codegencommon.cpp
+@@ -4431,7 +4431,9 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
+             if ((regSet.rsMaskPreSpillRegs(false) & genRegMask(regNum)) == 0)
+ #endif // _TARGET_ARM_
+             {
+-                noway_assert(xtraReg != varDsc->lvArgReg + i);
++#if !defined(UNIX_AMD64_ABI)
++                noway_assert(xtraReg != (varDsc->lvArgReg + i));
++#endif
+                 noway_assert(regArgMaskLive & genRegMask(regNum));
+             }
+ 
+@@ -7437,7 +7439,9 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
+         return;
+     }
+ 
+-#if defined(_TARGET_AMD64_) && !defined(UNIX_AMD64_ABI) // No profiling for System V systems yet.
++#if defined(_TARGET_AMD64_)
++#if !defined(UNIX_AMD64_ABI)
++
+     unsigned   varNum;
+     LclVarDsc* varDsc;
+ 
+@@ -7566,6 +7570,57 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
+         *pInitRegZeroed = false;
+     }
+ 
++#else // !defined(UNIX_AMD64_ABI)
++
++    // Emit profiler EnterCallback(ProfilerMethHnd, caller's SP)
++    // R14 = ProfilerMethHnd
++    if (compiler->compProfilerMethHndIndirected)
++    {
++        // Profiler hooks enabled during Ngen time.
++        // Profiler handle needs to be accessed through an indirection of a pointer.
++        getEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_PROFILER_ENTER_ARG_0,
++                                   (ssize_t)compiler->compProfilerMethHnd);
++    }
++    else
++    {
++        // No need to record relocations, if we are generating ELT hooks under the influence
++        // of COMPlus_JitELTHookEnabled=1
++        if (compiler->opts.compJitELTHookEnabled)
++        {
++            genSetRegToIcon(REG_PROFILER_ENTER_ARG_0, (ssize_t)compiler->compProfilerMethHnd, TYP_I_IMPL);
++        }
++        else
++        {
++            instGen_Set_Reg_To_Imm(EA_8BYTE, REG_PROFILER_ENTER_ARG_0, (ssize_t)compiler->compProfilerMethHnd);
++        }
++    }
++
++    // R15 = caller's SP
++    // Notes
++    //   1) Here we can query caller's SP offset since prolog will be generated after final frame layout.
++    //   2) caller's SP relative offset to FramePointer will be negative.  We need to add absolute value
++    //      of that offset to FramePointer to obtain caller's SP value.
++    assert(compiler->lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
++    int callerSPOffset = compiler->lvaToCallerSPRelativeOffset(0, isFramePointerUsed());
++    getEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, REG_PROFILER_ENTER_ARG_1, genFramePointerReg(), -callerSPOffset);
++
++    // Can't have a call until we have enough padding for rejit
++    genPrologPadForReJit();
++
++    // We can use any callee trash register (other than RAX, RDI, RSI) for call target.
++    // We use R11 here. This will emit either
++    // "call ip-relative 32-bit offset" or
++    // "mov r11, helper addr; call r11"
++    genEmitHelperCall(CORINFO_HELP_PROF_FCN_ENTER, 0, EA_UNKNOWN, REG_DEFAULT_PROFILER_CALL_TARGET);
++
++    // If initReg is one of RBM_CALLEE_TRASH, then it needs to be zero'ed before using.
++    if ((RBM_CALLEE_TRASH & genRegMask(initReg)) != 0)
++    {
++        *pInitRegZeroed = false;
++    }
++
++#endif // !defined(UNIX_AMD64_ABI)
++
+ #elif defined(_TARGET_X86_) || (defined(_TARGET_ARM_) && defined(LEGACY_BACKEND))
+ 
+     unsigned saveStackLvl2 = genStackLevel;
+@@ -7673,6 +7728,7 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
+ //
+ void CodeGen::genProfilingLeaveCallback(unsigned helper /*= CORINFO_HELP_PROF_FCN_LEAVE*/)
+ {
++
+     assert((helper == CORINFO_HELP_PROF_FCN_LEAVE) || (helper == CORINFO_HELP_PROF_FCN_TAILCALL));
+ 
+     // Only hook if profiler says it's okay.
+@@ -7686,7 +7742,8 @@ void CodeGen::genProfilingLeaveCallback(unsigned helper /*= CORINFO_HELP_PROF_FC
+     // Need to save on to the stack level, since the helper call will pop the argument
+     unsigned saveStackLvl2 = genStackLevel;
+ 
+-#if defined(_TARGET_AMD64_) && !defined(UNIX_AMD64_ABI) // No profiling for System V systems yet.
++#if defined(_TARGET_AMD64_)
++#if !defined(UNIX_AMD64_ABI)
+ 
+     // Since the method needs to make a profiler callback, it should have out-going arg space allocated.
+     noway_assert(compiler->lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
+@@ -7757,6 +7814,48 @@ void CodeGen::genProfilingLeaveCallback(unsigned helper /*= CORINFO_HELP_PROF_FC
+     // "mov r8, helper addr; call r8"
+     genEmitHelperCall(helper, 0, EA_UNKNOWN, REG_ARG_2);
+ 
++#else // !defined(UNIX_AMD64_ABI)
++
++    // RDI = ProfilerMethHnd
++    if (compiler->compProfilerMethHndIndirected)
++    {
++        getEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd);
++    }
++    else
++    {
++        if (compiler->opts.compJitELTHookEnabled)
++        {
++            genSetRegToIcon(REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd, TYP_I_IMPL);
++        }
++        else
++        {
++            instGen_Set_Reg_To_Imm(EA_8BYTE, REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd);
++        }
++    }
++
++    // RSI = caller's SP
++    if (compiler->lvaDoneFrameLayout == Compiler::FINAL_FRAME_LAYOUT)
++    {
++        int callerSPOffset = compiler->lvaToCallerSPRelativeOffset(0, isFramePointerUsed());
++        getEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, REG_ARG_1, genFramePointerReg(), -callerSPOffset);
++    }
++    else
++    {
++        LclVarDsc* varDsc = compiler->lvaTable;
++        NYI_IF((varDsc == nullptr) || !varDsc->lvIsParam, "Profiler ELT callback for a method without any params");
++
++        // lea rdx, [FramePointer + Arg0's offset]
++        getEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, REG_ARG_1, 0, 0);
++    }
++
++    // We can use any callee trash register (other than RAX, RDI, RSI) for call target.
++    // We use R11 here. This will emit either
++    // "call ip-relative 32-bit offset" or
++    // "mov r11, helper addr; call r11"
++    genEmitHelperCall(helper, 0, EA_UNKNOWN, REG_DEFAULT_PROFILER_CALL_TARGET);
++
++#endif // !defined(UNIX_AMD64_ABI)
++
+ #elif defined(_TARGET_X86_)
+ 
+     //
+@@ -8198,6 +8297,14 @@ void CodeGen::genFinalizeFrame()
+         regSet.rsSetRegsModified(RBM_INT_CALLEE_SAVED & ~RBM_FPBASE);
+     }
+ 
++#ifdef UNIX_AMD64_ABI
++    // On Unix x64 we also save R14 and R15 for ELT profiler hook generation.
++    if (compiler->compIsProfilerHookNeeded())
++    {
++        regSet.rsSetRegsModified(RBM_PROFILER_ENTER_ARG_0 | RBM_PROFILER_ENTER_ARG_1);
++    }
++#endif
++
+     /* Count how many callee-saved registers will actually be saved (pushed) */
+ 
+     // EBP cannot be (directly) modified for EBP frame and double-aligned frames
+diff --git a/src/jit/codegenxarch.cpp b/src/jit/codegenxarch.cpp
+index 252f004..fa2c22b 100644
+--- a/src/jit/codegenxarch.cpp
++++ b/src/jit/codegenxarch.cpp
+@@ -1219,16 +1219,51 @@ void CodeGen::genReturn(GenTreePtr treeNode)
+         // Since we are invalidating the assumption that we would slip into the epilog
+         // right after the "return", we need to preserve the return reg's GC state
+         // across the call until actual method return.
++        ReturnTypeDesc retTypeDesc;
++        unsigned       regCount;
++        if (compiler->compMethodReturnsMultiRegRetType())
++        {
++            if (varTypeIsLong(compiler->info.compRetNativeType))
++            {
++                retTypeDesc.InitializeLongReturnType(compiler);
++            }
++            else // we must have a struct return type
++            {
++                retTypeDesc.InitializeStructReturnType(compiler, compiler->info.compMethodInfo->args.retTypeClass);
++            }
++            regCount = retTypeDesc.GetReturnRegCount();
++        }
++
+         if (varTypeIsGC(compiler->info.compRetType))
+         {
+             gcInfo.gcMarkRegPtrVal(REG_INTRET, compiler->info.compRetType);
+         }
++        else if (compiler->compMethodReturnsMultiRegRetType())
++        {
++            for (unsigned i = 0; i < regCount; ++i)
++            {
++                if (varTypeIsGC(retTypeDesc.GetReturnRegType(i)))
++                {
++                    gcInfo.gcMarkRegPtrVal(retTypeDesc.GetABIReturnReg(i), retTypeDesc.GetReturnRegType(i));
++                }
++            }
++        }
+ 
+         genProfilingLeaveCallback();
+ 
+         if (varTypeIsGC(compiler->info.compRetType))
+         {
+-            gcInfo.gcMarkRegSetNpt(REG_INTRET);
++            gcInfo.gcMarkRegSetNpt(genRegMask(REG_INTRET));
++        }
++        else if (compiler->compMethodReturnsMultiRegRetType())
++        {
++            for (unsigned i = 0; i < regCount; ++i)
++            {
++                if (varTypeIsGC(retTypeDesc.GetReturnRegType(i)))
++                {
++                    gcInfo.gcMarkRegSetNpt(genRegMask(retTypeDesc.GetABIReturnReg(i)));
++                }
++            }
+         }
+     }
+ #endif
+@@ -8244,7 +8279,6 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk)
+                 var_types memType = (gcPtrs[i] == TYPE_GC_REF) ? TYP_REF : TYP_BYREF;
+                 getEmitter()->emitIns_R_AR(ins_Load(memType), emitTypeSize(memType), REG_RCX, REG_RSI, 0);
+                 genStoreRegToStackArg(memType, REG_RCX, i * TARGET_POINTER_SIZE);
+-
+ #ifdef DEBUG
+                 numGCSlotsCopied++;
+ #endif // DEBUG
+diff --git a/src/jit/compiler.cpp b/src/jit/compiler.cpp
+index 1c24b93..ccda4f5 100644
+--- a/src/jit/compiler.cpp
++++ b/src/jit/compiler.cpp
+@@ -6839,6 +6839,29 @@ void Compiler::GetStructTypeOffset(const SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSIN
+         *type1 = GetEightByteType(structDesc, 1);
+     }
+ }
++
++//------------------------------------------------------------------------------------------------------
++// GetStructTypeOffset: Gets the type, size and offset of the eightbytes of a struct for System V systems.
++//
++// Arguments:
++//    'typeHnd'    -  type handle
++//    'type0'      -  out param; returns the type of the first eightbyte.
++//    'type1'      -  out param; returns the type of the second eightbyte.
++//    'offset0'    -  out param; returns the offset of the first eightbyte.
++//    'offset1'    -  out param; returns the offset of the second eightbyte.
++//
++void Compiler::GetStructTypeOffset(CORINFO_CLASS_HANDLE typeHnd,
++                                   var_types*           type0,
++                                   var_types*           type1,
++                                   unsigned __int8*     offset0,
++                                   unsigned __int8*     offset1)
++{
++    SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
++    eeGetSystemVAmd64PassStructInRegisterDescriptor(typeHnd, &structDesc);
++    assert(structDesc.passedInRegisters);
++    GetStructTypeOffset(structDesc, type0, type1, offset0, offset1);
++}
++
+ #endif // defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)
+ 
+ /*****************************************************************************/
+diff --git a/src/jit/compiler.h b/src/jit/compiler.h
+index 5bff8dd..bf7aaac 100644
+--- a/src/jit/compiler.h
++++ b/src/jit/compiler.h
+@@ -9253,11 +9253,19 @@ public:
+     static var_types GetTypeFromClassificationAndSizes(SystemVClassificationType classType, int size);
+     static var_types GetEightByteType(const SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR& structDesc,
+                                       unsigned                                                   slotNum);
++
+     static void GetStructTypeOffset(const SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR& structDesc,
+                                     var_types*                                                 type0,
+                                     var_types*                                                 type1,
+                                     unsigned __int8*                                           offset0,
+                                     unsigned __int8*                                           offset1);
++
++    void GetStructTypeOffset(CORINFO_CLASS_HANDLE typeHnd,
++                             var_types*           type0,
++                             var_types*           type1,
++                             unsigned __int8*     offset0,
++                             unsigned __int8*     offset1);
++
+     void fgMorphSystemVStructArgs(GenTreeCall* call, bool hasStructArgument);
+ #endif // defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)
+ 
+diff --git a/src/jit/lclvars.cpp b/src/jit/lclvars.cpp
+index 4770a1d..e540c7f 100644
+--- a/src/jit/lclvars.cpp
++++ b/src/jit/lclvars.cpp
+@@ -6147,7 +6147,7 @@ void Compiler::lvaAlignFrame()
+     // On AMD64-Unix, there are no such slots. There is a possibility to have calls in the method with frame size of 0.
+     // The frame alignment logic won't kick in. This flags takes care of the AMD64-Unix case by remembering that there
+     // are calls and making sure the frame alignment logic is executed.
+-    bool stackNeedsAlignment = (compLclFrameSize != 0 || opts.compNeedToAlignFrame);
++    bool stackNeedsAlignment = (compLclFrameSize != 0 || opts.compNeedToAlignFrame || compIsProfilerHookNeeded());
+ #else  // !UNIX_AMD64_ABI
+     bool stackNeedsAlignment = compLclFrameSize != 0;
+ #endif // !UNIX_AMD64_ABI
+diff --git a/src/jit/target.h b/src/jit/target.h
+index 9fa5e33..8330139 100644
+--- a/src/jit/target.h
++++ b/src/jit/target.h
+@@ -830,6 +830,13 @@ typedef unsigned short regPairNoSmall; // arm: need 12 bits
+   #define RBM_FLT_CALLEE_SAVED    (0)
+   #define RBM_FLT_CALLEE_TRASH    (RBM_XMM0|RBM_XMM1|RBM_XMM2|RBM_XMM3|RBM_XMM4|RBM_XMM5|RBM_XMM6|RBM_XMM7| \
+                                    RBM_XMM8|RBM_XMM9|RBM_XMM10|RBM_XMM11|RBM_XMM12|RBM_XMM13|RBM_XMM14|RBM_XMM15)
++  #define REG_PROFILER_ENTER_ARG_0 REG_R14
++  #define RBM_PROFILER_ENTER_ARG_0 RBM_R14
++  #define REG_PROFILER_ENTER_ARG_1 REG_R15
++  #define RBM_PROFILER_ENTER_ARG_1 RBM_R15
++
++  #define REG_DEFAULT_PROFILER_CALL_TARGET REG_R11
++
+ #else // !UNIX_AMD64_ABI
+ #define MIN_ARG_AREA_FOR_CALL     (4 * REGSIZE_BYTES)       // Minimum required outgoing argument space for a call.
+ 
+@@ -976,7 +983,7 @@ typedef unsigned short regPairNoSmall; // arm: need 12 bits
+   //    profiler.
+   #define REG_DEFAULT_HELPER_CALL_TARGET    REG_RAX
+ 
+-  // GenericPInvokeCalliHelper VASigCookie Parameter 
++  // GenericPInvokeCalliHelper VASigCookie Parameter
+   #define REG_PINVOKE_COOKIE_PARAM          REG_R11
+   #define RBM_PINVOKE_COOKIE_PARAM          RBM_R11
+   #define PREDICT_REG_PINVOKE_COOKIE_PARAM  PREDICT_REG_R11
+diff --git a/src/vm/CMakeLists.txt b/src/vm/CMakeLists.txt
+index 835e31c..00c7d04 100644
+--- a/src/vm/CMakeLists.txt
++++ b/src/vm/CMakeLists.txt
+@@ -368,6 +368,7 @@ else(WIN32)
+ 
+     if(CLR_CMAKE_TARGET_ARCH_AMD64)
+         set(VM_SOURCES_WKS_ARCH_ASM
++            ${ARCH_SOURCES_DIR}/asmhelpers.S
+             ${ARCH_SOURCES_DIR}/calldescrworkeramd64.S
+             ${ARCH_SOURCES_DIR}/crthelpers.S
+             ${ARCH_SOURCES_DIR}/externalmethodfixupthunk.S
+diff --git a/src/vm/amd64/asmhelpers.S b/src/vm/amd64/asmhelpers.S
+new file mode 100644
+index 0000000..0f0ca07
+--- /dev/null
++++ b/src/vm/amd64/asmhelpers.S
+@@ -0,0 +1,289 @@
++// Licensed to the .NET Foundation under one or more agreements.
++// The .NET Foundation licenses this file to you under the MIT license.
++// See the LICENSE file in the project root for more information.
++
++.intel_syntax noprefix
++#include "unixasmmacros.inc"
++#include "asmconstants.h"
++
++#define real4 dword
++#define real8 qword
++
++//
++//    file: profile.cpp
++//    typedef struct _PROFILE_PLATFORM_SPECIFIC_DATA
++//    {
++//        FunctionID *functionId; // function ID comes in the r11 register
++//        void       *rbp;
++//        void       *probersp;
++//        void       *ip;
++//        void       *profiledRsp;
++//        UINT64      rax;
++//        LPVOID      hiddenArg;
++//        UINT64      flt0;
++//        UINT64      flt1;
++//        UINT64      flt2;
++//        UINT64      flt3;
++// #if defined(UNIX_AMD64_ABI)
++//        UINT64      flt4;
++//        UINT64      flt5;
++//        UINT64      flt6;
++//        UINT64      flt7;
++//        UINT64      rdi;
++//        UINT64      rsi;
++//        UINT64      rdx;
++//        UINT64      rcx;
++//        UINT64      r8;
++//        UINT64      r9;
++// #endif
++//        UINT32      flags;
++//    } PROFILE_PLATFORM_SPECIFIC_DATA, *PPROFILE_PLATFORM_SPECIFIC_DATA;
++//
++.equ SIZEOF_PROFILE_PLATFORM_SPECIFIC_DATA, 0x8*21 + 0x4*2   // includes fudge to make FP_SPILL right
++.equ SIZEOF_FP_ARG_SPILL, 0x10*2
++
++.equ OFFSETOF_FP_ARG_SPILL_0, SIZEOF_PROFILE_PLATFORM_SPECIFIC_DATA
++.equ OFFSETOF_FP_ARG_SPILL_1, OFFSETOF_FP_ARG_SPILL_0 + 0x10
++
++.equ SIZEOF_STACK_FRAME, SIZEOF_PROFILE_PLATFORM_SPECIFIC_DATA + SIZEOF_FP_ARG_SPILL + 0x8
++
++.equ PROFILE_ENTER, 0x1
++.equ PROFILE_LEAVE, 0x2
++.equ PROFILE_TAILCALL, 0x4
++
++// ***********************************************************
++//   NOTE:
++//
++//   Register preservation scheme:
++//
++//       Preserved:
++//           - all non-volatile registers
++//           - rax, rdx
++//           - xmm0, xmm1
++//
++//       Not Preserved:
++//           - integer argument registers (rcx, rdx, r8, r9)
++//           - floating point argument registers (xmm1-3)
++//           - volatile integer registers (r10, r11)
++//           - volatile floating point registers (xmm4-5)
++//           - upper halves of ymm registers on AVX (which are volatile)
++//
++// ***********************************************************
++
++// EXTERN_C void ProfileEnterNaked(FunctionIDOrClientID functionIDOrClientID, size_t profiledRsp);
++// <NOTE>
++//
++// </NOTE>
++NESTED_ENTRY ProfileEnterNaked, _TEXT, NoHandler
++  //       Upon entry :
++  //           r14 = clientInfo
++  //           r15 = profiledRsp
++
++  push_nonvol_reg         rax
++
++  lea                     rax, [rsp + 0x10]    // caller rsp
++  mov                     r10, [rax - 0x8]     // return address
++
++  push_argument_register  rdx
++  alloc_stack             SIZEOF_STACK_FRAME
++
++  // correctness of return value in structure doesn't matter for enter probe
++
++  // setup ProfilePlatformSpecificData structure
++  xor                     r11, r11 // nullify r11
++  mov                     [rsp +  0x0], r11    // r11 is null     -- struct functionId field
++  save_reg_postrsp        rbp, 0x8             //                 -- struct rbp field
++  mov                     [rsp + 0x10], rax    // caller rsp      -- struct probeRsp field
++  mov                     [rsp + 0x18], r10    // return address  -- struct ip field
++  mov                     [rsp + 0x20], r15    //                 -- struct profiledRsp field
++  mov                     [rsp + 0x28], r11    // return value    -- struct rax field
++  mov                     [rsp + 0x30], r11    // r11 is null     -- struct hiddenArg field
++  movsd                   real8 ptr [rsp + 0x38], xmm0    //      -- struct flt0 field
++  movsd                   real8 ptr [rsp + 0x40], xmm1    //      -- struct flt1 field
++  movsd                   real8 ptr [rsp + 0x48], xmm2    //      -- struct flt2 field
++  movsd                   real8 ptr [rsp + 0x50], xmm3    //      -- struct flt3 field
++  movsd                   real8 ptr [rsp + 0x58], xmm4    //      -- struct flt4 field
++  movsd                   real8 ptr [rsp + 0x60], xmm5    //      -- struct flt5 field
++  movsd                   real8 ptr [rsp + 0x68], xmm6    //      -- struct flt6 field
++  movsd                   real8 ptr [rsp + 0x70], xmm7    //      -- struct flt7 field
++  mov                     [rsp + 0x78], rdi     //                -- struct rdi field
++  mov                     [rsp + 0x80], rsi     //                -- struct rsi field
++  mov                     [rsp + 0x88], rdx     //                -- struct rdx field
++  mov                     [rsp + 0x90], rcx     //                -- struct rcx field
++  mov                     [rsp + 0x98], r8      //                -- struct r8 field
++  mov                     [rsp + 0xa0], r9      //                -- struct r9 field
++  mov                     r10, 0x1 // PROFILE_ENTER
++  mov                     [rsp + 0xa8], r10d   //                -- struct flags field
++
++  // we need to be able to restore the fp return register
++  save_xmm128_postrsp     xmm0, OFFSETOF_FP_ARG_SPILL_0
++  save_xmm128_postrsp     xmm1, OFFSETOF_FP_ARG_SPILL_1
++  END_PROLOGUE
++
++  // rdi already contains the clientInfo
++  mov                     rdi, r14
++  lea                     rsi, [rsp + 0x0]
++  call                    C_FUNC(ProfileEnter)
++
++  // restore arg registers
++  mov                     rdi, [rsp + 0x78]
++  mov                     rsi, [rsp + 0x80]
++  mov                     rdx, [rsp + 0x88]
++  mov                     rcx, [rsp + 0x90]
++  mov                     r8, [rsp + 0x98]
++  mov                     r9, [rsp + 0xa0]
++
++  // restore fp return register
++  movdqa                  xmm0, [rsp + OFFSETOF_FP_ARG_SPILL_0]
++  movdqa                  xmm1, [rsp + OFFSETOF_FP_ARG_SPILL_1]
++
++  // begin epilogue
++  free_stack              SIZEOF_STACK_FRAME
++  pop_argument_register   rdx
++
++  pop_nonvol_reg          rax
++
++  ret
++NESTED_END ProfileEnterNaked, _TEXT
++
++// EXTERN_C void ProfileLeaveNaked(FunctionIDOrClientID functionIDOrClientID, size_t profiledRsp);
++// <NOTE>
++//
++// </NOTE>
++NESTED_ENTRY ProfileLeaveNaked, _TEXT, NoHandler
++//       Upon entry :
++//           rdi = clientInfo
++//           rsi = profiledRsp
++
++  push_nonvol_reg         rbx
++
++  lea                     rbx, [rsp + 0x10]    // caller rsp
++  mov                     r10, [rbx - 0x8]     // return address
++
++  // rdx should be saved here because it can be used for returning struct values
++  push_argument_register  rdx
++  alloc_stack             SIZEOF_STACK_FRAME
++
++  // correctness of argument registers in structure doesn't matter for leave probe
++
++  // setup ProfilePlatformSpecificData structure
++  xor                     r11, r11  // nullify r11
++  mov                     [rsp +  0x0], r11    // r11 is null     -- struct functionId field
++  save_reg_postrsp        rbp, 0x8             //                 -- struct rbp field
++  mov                     [rsp + 0x10], rbx    // caller rsp      -- struct probeRsp field
++  mov                     [rsp + 0x18], r10    // return address  -- struct ip field
++  mov                     [rsp + 0x20], rsi    //                 -- struct profiledRsp field
++  mov                     [rsp + 0x28], rax    // return value    -- struct rax field
++  mov                     [rsp + 0x30], r11    // r11 is null     -- struct hiddenArg field
++  movsd                   real8 ptr [rsp + 0x38], xmm0    //      -- struct flt0 field
++  movsd                   real8 ptr [rsp + 0x40], xmm1    //      -- struct flt1 field
++  movsd                   real8 ptr [rsp + 0x48], xmm2    //      -- struct flt2 field
++  movsd                   real8 ptr [rsp + 0x50], xmm3    //      -- struct flt3 field
++  movsd                   real8 ptr [rsp + 0x58], xmm4    //      -- struct flt4 field
++  movsd                   real8 ptr [rsp + 0x60], xmm5    //      -- struct flt5 field
++  movsd                   real8 ptr [rsp + 0x68], xmm6    //      -- struct flt6 field
++  movsd                   real8 ptr [rsp + 0x70], xmm7    //      -- struct flt7 field
++  mov                     [rsp + 0x78], r11     //                -- struct rdi field
++  mov                     [rsp + 0x80], r11     //                -- struct rsi field
++  mov                     [rsp + 0x88], r11     //                -- struct rdx field
++  mov                     [rsp + 0x90], r11     //                -- struct rcx field
++  mov                     [rsp + 0x98], r11     //                -- struct r8 field
++  mov                     [rsp + 0xa0], r11    //                -- struct r9 field
++  mov                     r10, 0x2  // PROFILE_LEAVE
++  mov                     [rsp + 0xa8], r10d   // flags           -- struct flags field
++
++  // we need to be able to restore the fp return register
++  save_xmm128_postrsp     xmm0, OFFSETOF_FP_ARG_SPILL_0
++  save_xmm128_postrsp     xmm1, OFFSETOF_FP_ARG_SPILL_1
++  END_PROLOGUE
++
++  // rdi already contains the clientInfo
++  lea                     rsi, [rsp + 0x0]
++  call                    C_FUNC(ProfileLeave)
++
++  // restore fp return register
++  movdqa                  xmm0, [rsp + OFFSETOF_FP_ARG_SPILL_0]
++  movdqa                  xmm1, [rsp + OFFSETOF_FP_ARG_SPILL_1]
++
++  // restore int return register
++  mov                     rax, [rsp + 0x28]
++
++  // begin epilogue
++  free_stack              SIZEOF_STACK_FRAME
++  pop_argument_register   rdx
++
++  pop_nonvol_reg          rbx
++
++  ret
++NESTED_END ProfileLeaveNaked, _TEXT
++
++// EXTERN_C void ProfileTailcallNaked(FunctionIDOrClientID functionIDOrClientID, size_t profiledRsp);
++// <NOTE>
++//
++// </NOTE>
++NESTED_ENTRY ProfileTailcallNaked, _TEXT, NoHandler
++//       Upon entry :
++//           rdi = clientInfo
++//           rsi = profiledRsp
++
++  push_nonvol_reg         rbx
++
++  lea                     rbx, [rsp + 0x10]    // caller rsp
++  mov                     r10, [rbx - 0x8]     // return address
++
++  // rdx should be saved here because it can be used for returning struct values
++  push_argument_register  rdx
++  alloc_stack             SIZEOF_STACK_FRAME
++
++  // correctness of argument registers in structure doesn't matter for tailcall probe
++
++  // setup ProfilePlatformSpecificData structure
++  xor                     r11, r11  // nullify r11
++  mov                     [rsp +  0x0], r11    // r11 is null     -- struct functionId field
++  save_reg_postrsp        rbp, 0x8             //                 -- struct rbp field
++  mov                     [rsp + 0x10], rbx    // caller rsp      -- struct probeRsp field
++  mov                     [rsp + 0x18], r10    // return address  -- struct ip field
++  mov                     [rsp + 0x20], rsi    //                 -- struct profiledRsp field
++  mov                     [rsp + 0x28], rax    // return value    -- struct rax field
++  mov                     [rsp + 0x30], r11    // r11 is null     -- struct hiddenArg field
++  movsd                   real8 ptr [rsp + 0x38], xmm0    //      -- struct flt0 field
++  movsd                   real8 ptr [rsp + 0x40], xmm1    //      -- struct flt1 field
++  movsd                   real8 ptr [rsp + 0x48], xmm2    //      -- struct flt2 field
++  movsd                   real8 ptr [rsp + 0x50], xmm3    //      -- struct flt3 field
++  movsd                   real8 ptr [rsp + 0x58], xmm4    //      -- struct flt4 field
++  movsd                   real8 ptr [rsp + 0x60], xmm5    //      -- struct flt5 field
++  movsd                   real8 ptr [rsp + 0x68], xmm6    //      -- struct flt6 field
++  movsd                   real8 ptr [rsp + 0x70], xmm7    //      -- struct flt7 field
++  mov                     [rsp + 0x78], r11     //                -- struct rdi field
++  mov                     [rsp + 0x80], r11     //                -- struct rsi field
++  mov                     [rsp + 0x88], r11     //                -- struct rdx field
++  mov                     [rsp + 0x90], r11     //                -- struct rcx field
++  mov                     [rsp + 0x98], r11     //                -- struct r8 field
++  mov                     [rsp + 0xa0], r11     //                -- struct r9 field
++  mov                     r10, 0x2  // PROFILE_LEAVE
++  mov                     [rsp + 0xa8], r10d   // flags           -- struct flags field
++
++  // we need to be able to restore the fp return register
++  save_xmm128_postrsp     xmm0, OFFSETOF_FP_ARG_SPILL_0
++  save_xmm128_postrsp     xmm1, OFFSETOF_FP_ARG_SPILL_1
++  END_PROLOGUE
++
++  // rdi already contains the clientInfo
++  lea                     rsi, [rsp + 0x0]
++  call                    C_FUNC(ProfileTailcall)
++
++  // restore fp return register
++  movdqa                  xmm0, [rsp + OFFSETOF_FP_ARG_SPILL_0]
++  movdqa                  xmm1, [rsp + OFFSETOF_FP_ARG_SPILL_1]
++
++  // restore int return register
++  mov                     rax, [rsp + 0x28]
++
++  // begin epilogue
++  free_stack              SIZEOF_STACK_FRAME
++  pop_argument_register   rdx
++
++  pop_nonvol_reg          rbx
++
++  ret
++NESTED_END ProfileTailcallNaked, _TEXT
+diff --git a/src/vm/amd64/profiler.cpp b/src/vm/amd64/profiler.cpp
+index e88cbba..a5563e4 100644
+--- a/src/vm/amd64/profiler.cpp
++++ b/src/vm/amd64/profiler.cpp
+@@ -36,6 +36,18 @@ typedef struct _PROFILE_PLATFORM_SPECIFIC_DATA
+     UINT64      flt1;
+     UINT64      flt2;
+     UINT64      flt3;
++#if defined(UNIX_AMD64_ABI)
++    UINT64      flt4;
++    UINT64      flt5;
++    UINT64      flt6;
++    UINT64      flt7;
++    UINT64      rdi;
++    UINT64      rsi;
++    UINT64      rdx;
++    UINT64      rcx;
++    UINT64      r8;
++    UINT64      r9;
++#endif
+     UINT32      flags;
+ } PROFILE_PLATFORM_SPECIFIC_DATA, *PPROFILE_PLATFORM_SPECIFIC_DATA;
+ 
+diff --git a/src/vm/amd64/unixstubs.cpp b/src/vm/amd64/unixstubs.cpp
+index 76d3cf1..83764e0 100644
+--- a/src/vm/amd64/unixstubs.cpp
++++ b/src/vm/amd64/unixstubs.cpp
+@@ -11,21 +11,6 @@ extern "C"
+         PORTABILITY_ASSERT("Implement for PAL");
+     }
+ 
+-    void ProfileEnterNaked(FunctionIDOrClientID functionIDOrClientID)    
+-    {
+-        PORTABILITY_ASSERT("Implement for PAL");
+-    }
+-
+-    void ProfileLeaveNaked(FunctionIDOrClientID functionIDOrClientID)
+-    {
+-        PORTABILITY_ASSERT("Implement for PAL");
+-    }
+-
+-    void ProfileTailcallNaked(FunctionIDOrClientID functionIDOrClientID)
+-    {
+-        PORTABILITY_ASSERT("Implement for PAL");
+-    }
+-
+     DWORD getcpuid(DWORD arg, unsigned char result[16])
+     {
+         DWORD eax;
+-- 
+1.9.1
+
+
+From 3ead73093ab67643a6f313f2148812c3ad668d7c Mon Sep 17 00:00:00 2001
+From: Yongseop Kim <yons.kim@samsung.com>
+Date: Mon, 4 Sep 2017 15:41:57 +0900
+Subject: [PATCH 20/36] Enable loading directly ni file for dotnet-launcher
+
+---
+ src/vm/appdomain.cpp        | 3 ++-
+ src/vm/coreassemblyspec.cpp | 2 +-
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/src/vm/appdomain.cpp b/src/vm/appdomain.cpp
+index bd05991..2b1ae1a 100644
+--- a/src/vm/appdomain.cpp
++++ b/src/vm/appdomain.cpp
+@@ -7180,7 +7180,8 @@ EndTry2:;
+                     // Use CoreClr's fusion alternative
+                     CoreBindResult bindResult;
+ 
+-                    pSpec->Bind(this, fThrowOnFileNotFound, &bindResult, FALSE /* fNgenExplicitBind */, FALSE /* fExplicitBindToNativeImage */, pCallerStackMark);
++                    BOOL fExplicitBindToNativeImage = (g_fAllowNativeImages) ? TRUE: FALSE;
++                    pSpec->Bind(this, fThrowOnFileNotFound, &bindResult, FALSE /* fNgenExplicitBind */, fExplicitBindToNativeImage, pCallerStackMark);
+                     hrBindResult = bindResult.GetHRBindResult();
+ 
+                     if (bindResult.Found()) 
+diff --git a/src/vm/coreassemblyspec.cpp b/src/vm/coreassemblyspec.cpp
+index 1d3567e..2c3fba5 100644
+--- a/src/vm/coreassemblyspec.cpp
++++ b/src/vm/coreassemblyspec.cpp
+@@ -163,7 +163,7 @@ VOID  AssemblySpec::Bind(AppDomain      *pAppDomain,
+     else if(m_wszCodeBase==NULL)
+     {
+         // For name based binding these arguments shouldnt have been changed from default
+-        _ASSERTE(!fNgenExplicitBind && !fExplicitBindToNativeImage);
++        //_ASSERTE(!fNgenExplicitBind && !fExplicitBindToNativeImage);
+         SafeComHolder<IAssemblyName> pName;
+         hr = CreateAssemblyNameObject(&pName, assemblyDisplayName, CANOF_PARSE_DISPLAY_NAME, NULL);
+         if (SUCCEEDED(hr))
+-- 
+1.9.1
+
+
+From dd38848702a4d5b9aed45f4b6ff77b16141a764e Mon Sep 17 00:00:00 2001
+From: Yongseop Kim <yons.kim@samsung.com>
+Date: Tue, 5 Sep 2017 18:00:39 +0900
+Subject: [PATCH 21/36] Revert "Enable loading directly ni file for
+ dotnet-launcher"
+
+This reverts commit 3ead73093ab67643a6f313f2148812c3ad668d7c.
+---
+ src/vm/appdomain.cpp        | 3 +--
+ src/vm/coreassemblyspec.cpp | 2 +-
+ 2 files changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/src/vm/appdomain.cpp b/src/vm/appdomain.cpp
+index 2b1ae1a..bd05991 100644
+--- a/src/vm/appdomain.cpp
++++ b/src/vm/appdomain.cpp
+@@ -7180,8 +7180,7 @@ EndTry2:;
+                     // Use CoreClr's fusion alternative
+                     CoreBindResult bindResult;
+ 
+-                    BOOL fExplicitBindToNativeImage = (g_fAllowNativeImages) ? TRUE: FALSE;
+-                    pSpec->Bind(this, fThrowOnFileNotFound, &bindResult, FALSE /* fNgenExplicitBind */, fExplicitBindToNativeImage, pCallerStackMark);
++                    pSpec->Bind(this, fThrowOnFileNotFound, &bindResult, FALSE /* fNgenExplicitBind */, FALSE /* fExplicitBindToNativeImage */, pCallerStackMark);
+                     hrBindResult = bindResult.GetHRBindResult();
+ 
+                     if (bindResult.Found()) 
+diff --git a/src/vm/coreassemblyspec.cpp b/src/vm/coreassemblyspec.cpp
+index 2c3fba5..1d3567e 100644
+--- a/src/vm/coreassemblyspec.cpp
++++ b/src/vm/coreassemblyspec.cpp
+@@ -163,7 +163,7 @@ VOID  AssemblySpec::Bind(AppDomain      *pAppDomain,
+     else if(m_wszCodeBase==NULL)
+     {
+         // For name based binding these arguments shouldnt have been changed from default
+-        //_ASSERTE(!fNgenExplicitBind && !fExplicitBindToNativeImage);
++        _ASSERTE(!fNgenExplicitBind && !fExplicitBindToNativeImage);
+         SafeComHolder<IAssemblyName> pName;
+         hr = CreateAssemblyNameObject(&pName, assemblyDisplayName, CANOF_PARSE_DISPLAY_NAME, NULL);
+         if (SUCCEEDED(hr))
+-- 
+1.9.1
+
+
+From 327402c5c08bdbb3903735b20b76fe1d73819eb9 Mon Sep 17 00:00:00 2001
+From: Yongseop Kim <yons.kim@samsung.com>
+Date: Tue, 5 Sep 2017 18:03:34 +0900
+Subject: [PATCH 22/36] Enable loading directly ni file for corerun temporarily
+
+---
+ src/coreclr/hosts/unixcoreruncommon/coreruncommon.cpp | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/coreclr/hosts/unixcoreruncommon/coreruncommon.cpp b/src/coreclr/hosts/unixcoreruncommon/coreruncommon.cpp
+index f97f262..a1db5c1 100644
+--- a/src/coreclr/hosts/unixcoreruncommon/coreruncommon.cpp
++++ b/src/coreclr/hosts/unixcoreruncommon/coreruncommon.cpp
+@@ -314,6 +314,7 @@ int ExecuteManagedAssembly(
+     GetDirectory(managedAssemblyAbsolutePath, appPath);
+ 
+     std::string tpaList;
++    /*
+     if (strlen(managedAssemblyAbsolutePath) > 0)
+     {
+         // Target assembly should be added to the tpa list. Otherwise corerun.exe
+@@ -322,6 +323,7 @@ int ExecuteManagedAssembly(
+         tpaList = managedAssemblyAbsolutePath;
+         tpaList.append(":");
+     }
++    */
+ 
+     // Construct native search directory paths
+     std::string nativeDllSearchDirs(appPath);
+-- 
+1.9.1
+
+
+From 1ef080f2e3b158042ce162876e4f781834993c0e Mon Sep 17 00:00:00 2001
+From: Jiyoung Yun <jy910.yun@samsung.com>
+Date: Wed, 14 Jun 2017 16:36:56 +0900
+Subject: [PATCH 23/36] Add Tizen RuntimeID case
+
+Change-Id: I8c52d2993dd1414ede6ff1e40e949af58bca9d40
+---
+ build.sh | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/build.sh b/build.sh
+index 6590e83..3467387 100755
+--- a/build.sh
++++ b/build.sh
+@@ -414,12 +414,19 @@ isMSBuildOnNETCoreSupported()
+                 "alpine.3.4.3-x64")
+                     __isMSBuildOnNETCoreSupported=1
+                     ;;
++                "tizen"*)
++                    __isMSBuildOnNETCoreSupported=1
++                    ;;
+                 *)
+                 __isMSBuildOnNETCoreSupported=$__msbuildonunsupportedplatform
+             esac
+         elif [ "$__HostOS" == "OSX" ]; then
+             __isMSBuildOnNETCoreSupported=1
+         fi
++    elif [ "$__HostArch" == "arm" ]; then
++        __isMSBuildOnNETCoreSupported=1
++    elif [ "$__HostArch" == "x86" ]; then
++        __isMSBuildOnNETCoreSupported=1
+     fi
+ }
+ 
+@@ -475,12 +482,18 @@ build_CoreLib()
+     # The cross build generates a crossgen with the target architecture.
+     if [ $__CrossBuild != 1 ]; then
+        # The architecture of host pc must be same architecture with target.
++       if [[ ( "$__HostArch" == "x86") ]]; then
++           exit 0
++       fi
++
+        if [[ ( "$__HostArch" == "$__BuildArch" ) ]]; then
+            build_CoreLib_ni
+        elif [[ ( "$__HostArch" == "x64" ) && ( "$__BuildArch" == "x86" ) ]]; then
+            build_CoreLib_ni
+        elif [[ ( "$__HostArch" == "arm64" ) && ( "$__BuildArch" == "arm" ) ]]; then
+            build_CoreLib_ni
++       elif [[ ( "$__HostArch" == "arm" ) && ( "$__BuildArch" == "armel" ) ]]; then
++           exit 0
+        else 
+            exit 1
+        fi
+-- 
+1.9.1
+
+
+From a7eb5e1e176cef2d8b4767094822c07f52fb5dde Mon Sep 17 00:00:00 2001
+From: Hanjoung Lee <hanjoung.lee@samsung.com>
+Date: Wed, 13 Sep 2017 21:04:17 +0900
+Subject: [PATCH 24/36] Force O3 build with clang3.8
+
+---
+ src/pal/tools/gen-buildsys-clang.sh | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/pal/tools/gen-buildsys-clang.sh b/src/pal/tools/gen-buildsys-clang.sh
+index 132be93..c809fb7 100755
+--- a/src/pal/tools/gen-buildsys-clang.sh
++++ b/src/pal/tools/gen-buildsys-clang.sh
+@@ -156,9 +156,9 @@ if [ "$build_arch" == "armel" ]; then
+ fi
+ 
+ clang_version=$( $CC --version | head -1 | sed 's/[^0-9]*\([0-9]*\.[0-9]*\).*/\1/' )
+-# Use O1 option when the clang version is smaller than 3.9
++# Use O1 option when the clang version is smaller than 3.8
+ # Otherwise use O3 option in release build
+-if [[ ( ${clang_version%.*} -eq 3  &&  ${clang_version#*.} -lt 9 ) &&
++if [[ ( ${clang_version%.*} -eq 3  &&  ${clang_version#*.} -lt 8 ) &&
+       (  "$build_arch" == "arm" || "$build_arch" == "armel" ) ]]; then
+     overridefile=clang-compiler-override-arm.txt
+ else
+-- 
+1.9.1
+
+
+From 50a2e61973133053568eb02d65c0fae6fbd296a9 Mon Sep 17 00:00:00 2001
+From: CHUNSEOK LEE <chunseok.lee@samsung.com>
+Date: Wed, 23 Aug 2017 16:42:31 +0900
+Subject: [PATCH 25/36] Add -pie to linker option
+
+There have been no -pie linker option.
+This patch adds -pie linker option into crossgen(for tizen)
+---
+ src/tools/crossgen/CMakeLists.txt | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/tools/crossgen/CMakeLists.txt b/src/tools/crossgen/CMakeLists.txt
+index 3b9c5ba..b8e9cf7 100644
+--- a/src/tools/crossgen/CMakeLists.txt
++++ b/src/tools/crossgen/CMakeLists.txt
+@@ -50,6 +50,7 @@ if(CLR_CMAKE_PLATFORM_UNIX)
+         coreclrpal
+         palrt
+     )
++    set_target_properties(crossgen PROPERTIES LINK_FLAGS -pie)
+ else()
+     target_link_libraries(crossgen
+         advapi32
+-- 
+1.9.1
+
+
+From fb9e7963825bd075a0a6528584442a17b38250e5 Mon Sep 17 00:00:00 2001
+From: Jonghyun Park <parjong@gmail.com>
+Date: Thu, 18 May 2017 12:30:52 +0900
+Subject: [PATCH 26/36] Fix undefined references on SOS (#11701)
+
+---
+ src/vm/i386/excepx86.cpp   | 21 +++++++++------------
+ src/vm/virtualcallstub.cpp | 14 +++++++-------
+ 2 files changed, 16 insertions(+), 19 deletions(-)
+
+diff --git a/src/vm/i386/excepx86.cpp b/src/vm/i386/excepx86.cpp
+index cf01147..9f19d47 100644
+--- a/src/vm/i386/excepx86.cpp
++++ b/src/vm/i386/excepx86.cpp
+@@ -1953,18 +1953,6 @@ LPVOID STDCALL COMPlusEndCatch(LPVOID ebp, DWORD ebx, DWORD edi, DWORD esi, LPVO
+     return esp;
+ }
+ 
+-#endif // !DACCESS_COMPILE
+-
+-PTR_CONTEXT GetCONTEXTFromRedirectedStubStackFrame(CONTEXT * pContext)
+-{
+-    LIMITED_METHOD_DAC_CONTRACT;
+-    
+-    UINT_PTR stackSlot = pContext->Ebp + REDIRECTSTUB_EBP_OFFSET_CONTEXT;
+-    PTR_PTR_CONTEXT ppContext = dac_cast<PTR_PTR_CONTEXT>((TADDR)stackSlot);
+-    return *ppContext;
+-}
+-
+-#if !defined(DACCESS_COMPILE)
+ PEXCEPTION_REGISTRATION_RECORD GetCurrentSEHRecord()
+ {
+     WRAPPER_NO_CONTRACT;
+@@ -3618,6 +3606,15 @@ EXCEPTION_HANDLER_IMPL(COMPlusFrameHandlerRevCom)
+ #endif // !DACCESS_COMPILE
+ #endif // !WIN64EXCEPTIONS
+ 
++PTR_CONTEXT GetCONTEXTFromRedirectedStubStackFrame(CONTEXT * pContext)
++{
++    LIMITED_METHOD_DAC_CONTRACT;
++
++    UINT_PTR stackSlot = pContext->Ebp + REDIRECTSTUB_EBP_OFFSET_CONTEXT;
++    PTR_PTR_CONTEXT ppContext = dac_cast<PTR_PTR_CONTEXT>((TADDR)stackSlot);
++    return *ppContext;
++}
++
+ #ifndef DACCESS_COMPILE
+ LONG CLRNoCatchHandler(EXCEPTION_POINTERS* pExceptionInfo, PVOID pv)
+ {
+diff --git a/src/vm/virtualcallstub.cpp b/src/vm/virtualcallstub.cpp
+index 01b15c6..e753860 100644
+--- a/src/vm/virtualcallstub.cpp
++++ b/src/vm/virtualcallstub.cpp
+@@ -1640,6 +1640,13 @@ void VirtualCallStubManager::BackPatchWorkerStatic(PCODE returnAddress, TADDR si
+     END_ENTRYPOINT_VOIDRET;
+ }
+ 
++#if defined(_TARGET_X86_) && defined(FEATURE_PAL)
++void BackPatchWorkerStaticStub(PCODE returnAddr, TADDR siteAddrForRegisterIndirect)
++{
++    VirtualCallStubManager::BackPatchWorkerStatic(returnAddr, siteAddrForRegisterIndirect);
++}
++#endif
++
+ PCODE VirtualCallStubManager::ResolveWorker(StubCallSite* pCallSite,
+                                             OBJECTREF *protectedObj,
+                                             DispatchToken token,
+@@ -4047,10 +4054,3 @@ BOOL VirtualCallStubManagerManager::TraceManager(
+     // Forward the call to the appropriate manager.
+     return pMgr->TraceManager(thread, trace, pContext, pRetAddr);
+ }
+-
+-#if defined(_TARGET_X86_) && defined(FEATURE_PAL)
+-void BackPatchWorkerStaticStub(PCODE returnAddr, TADDR siteAddrForRegisterIndirect)
+-{
+-    VirtualCallStubManager::BackPatchWorkerStatic(returnAddr, siteAddrForRegisterIndirect);
+-}
+-#endif
+-- 
+1.9.1
+
+
+From a4aa3c9f4125d04a70577f4182b80bb9b2aa4dc4 Mon Sep 17 00:00:00 2001
+From: Jonghyun Park <parjong@gmail.com>
+Date: Thu, 18 May 2017 12:34:05 +0900
+Subject: [PATCH 27/36] Port 'DacUnwindStackFrame' (#11666)
+
+* [x86/Linux] Implement 'DacUnwindStackFrame'
+
+* Update ContextPointers using ContextRecord
+
+* An attempt to fix x86/Windows build error
+---
+ src/inc/regdisp.h                   | 56 +++++++++++++----------
+ src/unwinder/i386/unwinder_i386.cpp | 88 ++++++++++++++++++++++++-------------
+ src/unwinder/i386/unwinder_i386.h   |  2 +
+ 3 files changed, 91 insertions(+), 55 deletions(-)
+
+diff --git a/src/inc/regdisp.h b/src/inc/regdisp.h
+index a361dca..eb84fdf 100644
+--- a/src/inc/regdisp.h
++++ b/src/inc/regdisp.h
+@@ -323,6 +323,35 @@ inline void SyncRegDisplayToCurrentContext(REGDISPLAY* pRD)
+ 
+ typedef REGDISPLAY *PREGDISPLAY;
+ 
++#ifdef WIN64EXCEPTIONS
++inline void FillContextPointers(PT_KNONVOLATILE_CONTEXT_POINTERS pCtxPtrs, PT_CONTEXT pCtx)
++{
++#ifdef _TARGET_AMD64_
++    for (int i = 0; i < 16; i++)
++    {
++        *(&pCtxPtrs->Rax + i) = (&pCtx->Rax + i);
++    }
++#elif defined(_TARGET_ARM64_) // _TARGET_AMD64_
++    for (int i = 0; i < 12; i++)
++    {
++        *(&pCtxPtrs->X19 + i) = (&pCtx->X19 + i);
++    }
++#elif defined(_TARGET_ARM_) // _TARGET_ARM64_
++    // Copy over the nonvolatile integer registers (R4-R11)
++    for (int i = 0; i < 8; i++)
++    {
++        *(&pCtxPtrs->R4 + i) = (&pCtx->R4 + i);
++    }
++#elif defined(_TARGET_X86_) // _TARGET_ARM_
++    for (int i = 0; i < 7; i++)
++    {
++        *(&pCtxPtrs->Edi + i) = (&pCtx->Edi + i);
++    }
++#else // _TARGET_X86_
++    PORTABILITY_ASSERT("FillContextPointers");
++#endif // _TARGET_???_ (ELSE)
++}
++#endif // WIN64EXCEPTIONS
+ 
+ inline void FillRegDisplay(const PREGDISPLAY pRD, PT_CONTEXT pctx, PT_CONTEXT pCallerCtx = NULL)
+ {
+@@ -374,33 +403,12 @@ inline void FillRegDisplay(const PREGDISPLAY pRD, PT_CONTEXT pctx, PT_CONTEXT pC
+         pRD->IsCallerSPValid      = TRUE;        // Don't add usage of this field.  This is only temporary.
+     }
+ 
+-#ifdef _TARGET_AMD64_
+-    for (int i = 0; i < 16; i++)
+-    {
+-        *(&pRD->ctxPtrsOne.Rax + i) = (&pctx->Rax + i);
+-    }
+-#elif defined(_TARGET_ARM64_) // _TARGET_AMD64_
+-    for (int i = 0; i < 12; i++)
+-    {
+-        *(&pRD->ctxPtrsOne.X19 + i) = (&pctx->X19 + i);
+-    }
+-#elif defined(_TARGET_ARM_) // _TARGET_ARM64_
+-    // Copy over the nonvolatile integer registers (R4-R11)
+-    for (int i = 0; i < 8; i++)
+-    {
+-        *(&pRD->ctxPtrsOne.R4 + i) = (&pctx->R4 + i);
+-    }
++    FillContextPointers(&pRD->ctxPtrsOne, pctx);
+ 
++#if defined(_TARGET_ARM_)
+     pRD->ctxPtrsOne.Lr = &pctx->Lr;
+     pRD->pPC = &pRD->pCurrentContext->Pc;
+-#elif defined(_TARGET_X86_) // _TARGET_ARM_
+-    for (int i = 0; i < 7; i++)
+-    {
+-        *(&pRD->ctxPtrsOne.Edi + i) = (&pctx->Edi + i);
+-    }
+-#else // _TARGET_X86_
+-    PORTABILITY_ASSERT("FillRegDisplay");
+-#endif // _TARGET_???_ (ELSE)
++#endif // _TARGET_ARM_
+ 
+ #ifdef DEBUG_REGDISPLAY
+     pRD->_pThread = NULL;
+diff --git a/src/unwinder/i386/unwinder_i386.cpp b/src/unwinder/i386/unwinder_i386.cpp
+index f221020..42c19cb 100644
+--- a/src/unwinder/i386/unwinder_i386.cpp
++++ b/src/unwinder/i386/unwinder_i386.cpp
+@@ -8,6 +8,49 @@
+ #include "unwinder_i386.h"
+ 
+ #ifdef WIN64EXCEPTIONS
++BOOL OOPStackUnwinderX86::Unwind(T_CONTEXT* pContextRecord, T_KNONVOLATILE_CONTEXT_POINTERS* pContextPointers)
++{
++    REGDISPLAY rd;
++
++    FillRegDisplay(&rd, pContextRecord);
++
++    rd.SP = pContextRecord->Esp;
++    rd.PCTAddr = (UINT_PTR)&(pContextRecord->Eip);
++
++    if (pContextPointers)
++    {
++        rd.pCurrentContextPointers = pContextPointers;
++    }
++
++    CodeManState codeManState;
++    codeManState.dwIsSet = 0;
++
++    DWORD ControlPc = pContextRecord->Eip;
++
++    EECodeInfo codeInfo;
++    codeInfo.Init((PCODE) ControlPc);
++
++    if (!UnwindStackFrame(&rd, &codeInfo, UpdateAllRegs, &codeManState, NULL))
++    {
++        return FALSE;
++    }
++
++    pContextRecord->ContextFlags |= CONTEXT_UNWOUND_TO_CALL;
++
++#define ARGUMENT_AND_SCRATCH_REGISTER(reg) if (rd.pCurrentContextPointers->reg) pContextRecord->reg = *rd.pCurrentContextPointers->reg;
++    ENUM_ARGUMENT_AND_SCRATCH_REGISTERS();
++#undef ARGUMENT_AND_SCRATCH_REGISTER
++
++#define CALLEE_SAVED_REGISTER(reg) if (rd.pCurrentContextPointers->reg) pContextRecord->reg = *rd.pCurrentContextPointers->reg;
++    ENUM_CALLEE_SAVED_REGISTERS();
++#undef CALLEE_SAVED_REGISTER
++
++    pContextRecord->Esp = rd.SP - codeInfo.GetCodeManager()->GetStackParameterSize(&codeInfo);
++    pContextRecord->Eip = rd.ControlPC;
++
++    return TRUE;
++}
++
+ /*++
+ 
+ Routine Description:
+@@ -72,42 +115,13 @@ OOPStackUnwinderX86::VirtualUnwind(
+         *HandlerRoutine = NULL;
+     }
+ 
+-    REGDISPLAY rd;
+-
+-    FillRegDisplay(&rd, ContextRecord);
+-
+-    rd.SP = ContextRecord->Esp;
+-    rd.PCTAddr = (UINT_PTR)&(ContextRecord->Eip);
+-
+-    if (ContextPointers)
+-    {
+-        rd.pCurrentContextPointers = ContextPointers;
+-    }
+-
+-    CodeManState codeManState;
+-    codeManState.dwIsSet = 0;
++    _ASSERTE(ContextRecord->Eip == ControlPc);
+ 
+-    EECodeInfo codeInfo;
+-    codeInfo.Init((PCODE) ControlPc);
+-
+-    if (!UnwindStackFrame(&rd, &codeInfo, UpdateAllRegs, &codeManState, NULL))
++    if (!OOPStackUnwinderX86::Unwind(ContextRecord, ContextPointers))
+     {
+         return HRESULT_FROM_WIN32(ERROR_READ_FAULT);
+     }
+ 
+-    ContextRecord->ContextFlags |= CONTEXT_UNWOUND_TO_CALL;
+-
+-#define ARGUMENT_AND_SCRATCH_REGISTER(reg) if (rd.pCurrentContextPointers->reg) ContextRecord->reg = *rd.pCurrentContextPointers->reg;
+-    ENUM_ARGUMENT_AND_SCRATCH_REGISTERS();
+-#undef ARGUMENT_AND_SCRATCH_REGISTER
+-
+-#define CALLEE_SAVED_REGISTER(reg) if (rd.pCurrentContextPointers->reg) ContextRecord->reg = *rd.pCurrentContextPointers->reg;
+-    ENUM_CALLEE_SAVED_REGISTERS();
+-#undef CALLEE_SAVED_REGISTER
+-
+-    ContextRecord->Esp = rd.SP - codeInfo.GetCodeManager()->GetStackParameterSize(&codeInfo);
+-    ContextRecord->Eip = rd.ControlPC;
+-
+     // For x86, the value of Establisher Frame Pointer is Caller SP
+     //
+     // (Please refers to CLR ABI for details)
+@@ -115,6 +129,18 @@ OOPStackUnwinderX86::VirtualUnwind(
+     return S_OK;
+ }
+ 
++BOOL DacUnwindStackFrame(T_CONTEXT* pContextRecord, T_KNONVOLATILE_CONTEXT_POINTERS* pContextPointers)
++{
++    BOOL res = OOPStackUnwinderX86::Unwind(pContextRecord, NULL);
++
++    if (res && pContextPointers)
++    {
++        FillContextPointers(pContextPointers, pContextRecord);
++    }
++
++    return res;
++}
++
+ //---------------------------------------------------------------------------------------
+ //
+ // This function behaves like the RtlVirtualUnwind in Windows.
+diff --git a/src/unwinder/i386/unwinder_i386.h b/src/unwinder/i386/unwinder_i386.h
+index bed30bf..f29248f 100644
+--- a/src/unwinder/i386/unwinder_i386.h
++++ b/src/unwinder/i386/unwinder_i386.h
+@@ -18,6 +18,8 @@
+ class OOPStackUnwinderX86 : public OOPStackUnwinder
+ {
+ public:
++    static BOOL Unwind(T_CONTEXT* pContextRecord, T_KNONVOLATILE_CONTEXT_POINTERS* pContextPointers);
++
+     static HRESULT VirtualUnwind(__in DWORD HandlerType,
+         __in DWORD ImageBase,
+         __in DWORD ControlPc,
+-- 
+1.9.1
+
+
+From 38c6eaef4ce3455c5e428a241b5a66322b5161ca Mon Sep 17 00:00:00 2001
+From: Jonghyun Park <parjong@gmail.com>
+Date: Sat, 20 May 2017 00:17:27 +0900
+Subject: [PATCH 28/36] Include PAL headers instead of embedding it (#11705)
+
+---
+ src/ToolBox/SOS/lldbplugin/CMakeLists.txt     |  2 +
+ src/ToolBox/SOS/lldbplugin/inc/lldbservices.h | 21 +------
+ src/ToolBox/SOS/lldbplugin/mstypes.h          | 81 +--------------------------
+ src/ToolBox/SOS/lldbplugin/services.h         |  6 +-
+ src/pal/inc/rt/x86intrin.h                    |  1 +
+ 5 files changed, 9 insertions(+), 102 deletions(-)
+ create mode 100644 src/pal/inc/rt/x86intrin.h
+
+diff --git a/src/ToolBox/SOS/lldbplugin/CMakeLists.txt b/src/ToolBox/SOS/lldbplugin/CMakeLists.txt
+index fe816ab..004abfe 100644
+--- a/src/ToolBox/SOS/lldbplugin/CMakeLists.txt
++++ b/src/ToolBox/SOS/lldbplugin/CMakeLists.txt
+@@ -99,6 +99,8 @@ include_directories(inc)
+ include_directories("${LLDB_H}")
+ include_directories(${CLR_DIR}/src/debug/inc)
+ include_directories(${CLR_DIR}/src/inc)
++include_directories(${CLR_DIR}/src/pal/inc)
++include_directories(${CLR_DIR}/src/pal/inc/rt)
+ include_directories(${CLR_DIR}/src/coreclr/hosts/inc)
+ include_directories(${CLR_DIR}/src/coreclr/hosts/unixcoreruncommon)
+ 
+diff --git a/src/ToolBox/SOS/lldbplugin/inc/lldbservices.h b/src/ToolBox/SOS/lldbplugin/inc/lldbservices.h
+index 4817e81..ffb2224 100644
+--- a/src/ToolBox/SOS/lldbplugin/inc/lldbservices.h
++++ b/src/ToolBox/SOS/lldbplugin/inc/lldbservices.h
+@@ -12,6 +12,8 @@
+ #define __LLDBSERVICES_H__
+ 
+ #include <stdarg.h>
++#include <palrt.h>
++#include <unknwn.h>
+ 
+ #ifdef __cplusplus
+ extern "C" {
+@@ -109,25 +111,6 @@ extern "C" {
+ 
+ #define DEBUG_EVENT_EXCEPTION            0x00000002
+ 
+-#ifdef DEFINE_EXCEPTION_RECORD
+-
+-#define EXCEPTION_MAXIMUM_PARAMETERS     15
+-
+-// This copy of the "64" bit record has been modified
+-// by removing the alignment field to make it the same
+-// as the _EXCEPTION_RECORD used in the pal defined in 
+-// pal.h.
+-typedef struct _EXCEPTION_RECORD64 {
+-    DWORD ExceptionCode;
+-    DWORD ExceptionFlags;
+-    DWORD64 ExceptionRecord;
+-    DWORD64 ExceptionAddress;
+-    DWORD NumberParameters;
+-    DWORD64 ExceptionInformation[EXCEPTION_MAXIMUM_PARAMETERS];
+-} EXCEPTION_RECORD64, *PEXCEPTION_RECORD64;
+-
+-#endif // DEFINE_EXCEPTION_RECORD
+-
+ typedef struct _DEBUG_LAST_EVENT_INFO_EXCEPTION
+ {
+     EXCEPTION_RECORD64 ExceptionRecord;
+diff --git a/src/ToolBox/SOS/lldbplugin/mstypes.h b/src/ToolBox/SOS/lldbplugin/mstypes.h
+index b5eee92..9b6f261 100644
+--- a/src/ToolBox/SOS/lldbplugin/mstypes.h
++++ b/src/ToolBox/SOS/lldbplugin/mstypes.h
+@@ -6,14 +6,7 @@
+ // etc. because they have various conflicits with the linux standard
+ // runtime h files like wchar_t, memcpy, etc.
+ 
+-#include <../../../pal/inc/pal_mstypes.h>
+-
+-#define S_OK                             (HRESULT)0x00000000
+-#define S_FALSE                          (HRESULT)0x00000001
+-#define E_NOTIMPL                        (HRESULT)0x80004001
+-#define E_FAIL                           (HRESULT)0x80004005
+-#define E_INVALIDARG                     (HRESULT)0x80070057
+-#define E_NOINTERFACE                    (HRESULT)0x80004002
++#include <pal_mstypes.h>
+ 
+ #define MAX_PATH                         260 
+ 
+@@ -32,75 +25,3 @@
+ #define MAKEDLLNAME_W(name) u"lib" name u".so"
+ #define MAKEDLLNAME_A(name)  "lib" name  ".so"
+ #endif
+-
+-#if defined(_MSC_VER) || defined(__llvm__)
+-#define DECLSPEC_ALIGN(x)   __declspec(align(x))
+-#else
+-#define DECLSPEC_ALIGN(x) 
+-#endif
+-
+-#define interface struct
+-#define DECLSPEC_UUID(x)    __declspec(uuid(x))
+-#define DECLSPEC_NOVTABLE
+-#define MIDL_INTERFACE(x)   struct DECLSPEC_UUID(x) DECLSPEC_NOVTABLE
+-
+-#ifdef __cplusplus
+-#define REFGUID const GUID &
+-#else
+-#define REFGUID const GUID *
+-#endif
+-
+-#ifdef __cplusplus
+-extern "C++" {
+-#include "string.h"
+-#if !defined _SYS_GUID_OPERATOR_EQ_ && !defined _NO_SYS_GUID_OPERATOR_EQ_
+-#define _SYS_GUID_OPERATOR_EQ_
+-inline int IsEqualGUID(REFGUID rguid1, REFGUID rguid2)
+-    { return !memcmp(&rguid1, &rguid2, sizeof(GUID)); }
+-inline int operator==(REFGUID guidOne, REFGUID guidOther)
+-    { return IsEqualGUID(guidOne,guidOther); }
+-inline int operator!=(REFGUID guidOne, REFGUID guidOther)
+-    { return !IsEqualGUID(guidOne,guidOther); }
+-#endif
+-};
+-#endif // __cplusplus
+-
+-typedef GUID IID;
+-#ifdef __cplusplus
+-#define REFIID const IID &
+-#else
+-#define REFIID const IID *
+-#endif
+-#define IID_NULL GUID_NULL
+-#define IsEqualIID(riid1, riid2) IsEqualGUID(riid1, riid2)
+-
+-MIDL_INTERFACE("00000000-0000-0000-C000-000000000046")
+-IUnknown
+-{
+-public:
+-    virtual HRESULT QueryInterface( 
+-        REFIID riid,
+-        void **ppvObject) = 0;
+-        
+-    virtual ULONG AddRef( void) = 0;
+-        
+-    virtual ULONG Release( void) = 0;
+-};
+-
+-EXTERN_C
+-inline
+-LONG
+-InterlockedIncrement(
+-    LONG volatile *lpAddend)
+-{
+-    return __sync_add_and_fetch(lpAddend, (LONG)1);
+-}
+-
+-EXTERN_C
+-inline
+-LONG
+-InterlockedDecrement(
+-    LONG volatile *lpAddend)
+-{
+-    return __sync_sub_and_fetch(lpAddend, (LONG)1);
+-}
+\ No newline at end of file
+diff --git a/src/ToolBox/SOS/lldbplugin/services.h b/src/ToolBox/SOS/lldbplugin/services.h
+index 3c384c9..6509040 100644
+--- a/src/ToolBox/SOS/lldbplugin/services.h
++++ b/src/ToolBox/SOS/lldbplugin/services.h
+@@ -32,13 +32,13 @@ public:
+     // IUnknown
+     //----------------------------------------------------------------------------
+ 
+-    HRESULT QueryInterface(
++    HRESULT STDMETHODCALLTYPE QueryInterface(
+         REFIID InterfaceId,
+         PVOID* Interface);
+ 
+-    ULONG AddRef();
++    ULONG STDMETHODCALLTYPE AddRef();
+ 
+-    ULONG Release();
++    ULONG STDMETHODCALLTYPE Release();
+ 
+     //----------------------------------------------------------------------------
+     // ILLDBServices
+diff --git a/src/pal/inc/rt/x86intrin.h b/src/pal/inc/rt/x86intrin.h
+new file mode 100644
+index 0000000..c88e9fc
+--- /dev/null
++++ b/src/pal/inc/rt/x86intrin.h
+@@ -0,0 +1 @@
++#include "xmmintrin.h"
+-- 
+1.9.1
+
+
+From 246a76759bb82560da5492cdde9deabf5713f767 Mon Sep 17 00:00:00 2001
+From: Buyduck <ivan.vagin@partner.samsung.com>
+Date: Mon, 29 May 2017 14:26:41 +0300
+Subject: [PATCH 29/36] added DWARF exprloc for static value class fields
+ (#11911)
+
+---
+ src/vm/gdbjit.cpp | 45 +++++++++++++++++++++++++++++++++++++--------
+ 1 file changed, 37 insertions(+), 8 deletions(-)
+
+diff --git a/src/vm/gdbjit.cpp b/src/vm/gdbjit.cpp
+index 5a3f074..d21b4da 100644
+--- a/src/vm/gdbjit.cpp
++++ b/src/vm/gdbjit.cpp
+@@ -1106,6 +1106,7 @@ void TypeMember::DumpDebugInfo(char* ptr, int& offset)
+ void TypeMember::DumpStaticDebugInfo(char* ptr, int& offset)
+ {
+     const int ptrSize = sizeof(TADDR);
++    int bufSize = 0;
+     if (ptr != nullptr)
+     {
+         DebugInfoStaticMember memberEntry;
+@@ -1114,19 +1115,47 @@ void TypeMember::DumpStaticDebugInfo(char* ptr, int& offset)
+         memberEntry.m_member_specification = m_member_offset;
+         memcpy(ptr + offset, &memberEntry, sizeof(DebugInfoStaticMember));
+ 
+-        char buf[ptrSize + 2] = {0};
+-        buf[0] = ptrSize + 1;
+-        buf[1] = DW_OP_addr;
+-
+-        for (int i = 0; i < ptrSize; i++)
++        // for value type static fields compute address as:
++        // addr = (*addr+sizeof(OBJECTREF))
++        if (m_member_type->GetTypeHandle().GetSignatureCorElementType() ==
++                ELEMENT_TYPE_VALUETYPE)
+         {
+-            buf[i + 2] = m_static_member_address >> (i * 8);
++            bufSize = ptrSize + 6;
++
++            char buf[ptrSize + 6] = {0};
++            buf[0] = ptrSize + 5;
++            buf[1] = DW_OP_addr;
++
++            for (int i = 0; i < ptrSize; i++)
++            {
++                buf[i + 2] = m_static_member_address >> (i * 8);
++            }
++
++            buf[ptrSize + 2] = DW_OP_deref;
++            buf[ptrSize + 3] = DW_OP_const1u;
++            buf[ptrSize + 4] = sizeof(OBJECTREF);
++            buf[ptrSize + 5] = DW_OP_plus;
++
++            memcpy(ptr + offset + sizeof(DebugInfoStaticMember), &buf, bufSize);
+         }
++        else
++        {
++            bufSize = ptrSize + 2;
+ 
+-        memcpy(ptr + offset + sizeof(DebugInfoStaticMember), &buf, ptrSize + 2);
++            char buf[ptrSize + 2] = {0};
++            buf[0] = ptrSize + 1;
++            buf[1] = DW_OP_addr;
++
++            for (int i = 0; i < ptrSize; i++)
++            {
++                buf[i + 2] = m_static_member_address >> (i * 8);
++            }
++
++            memcpy(ptr + offset + sizeof(DebugInfoStaticMember), &buf, bufSize);
++        }
+     }
+     offset += sizeof(DebugInfoStaticMember);
+-    offset += ptrSize + 2;
++    offset += bufSize;
+ }
+ 
+ void FunctionMember::MangleName(char *buf, int &buf_offset, const char *name)
+-- 
+1.9.1
+
+
+From c6c8d072033d80374fe27f8c91a21268dc57c4f3 Mon Sep 17 00:00:00 2001
+From: Konstantin Baladurin <k.baladurin@partner.samsung.com>
+Date: Mon, 11 Sep 2017 20:23:16 +0300
+Subject: [PATCH 30/36] Fix calculation of debuginfo's size. (#13899)
+
+Information about each type is dumped once but during debuginfo's
+size calculation it was taken into account several time. Due to it
+size of debuginfo section could be in several times bigger than
+needed that in some cases leaded to OOM.
+---
+ src/vm/gdbjit.cpp | 86 ++++++++++++++++++++++++++++++++++---------------------
+ src/vm/gdbjit.h   |  9 ++++++
+ 2 files changed, 62 insertions(+), 33 deletions(-)
+
+diff --git a/src/vm/gdbjit.cpp b/src/vm/gdbjit.cpp
+index d21b4da..50f1bb2 100644
+--- a/src/vm/gdbjit.cpp
++++ b/src/vm/gdbjit.cpp
+@@ -939,11 +939,14 @@ void TypeDefInfo::DumpStrings(char *ptr, int &offset)
+ 
+ void TypeDefInfo::DumpDebugInfo(char *ptr, int &offset)
+ {
+-    if (m_typedef_type_offset != 0)
++    if (m_is_visited && m_base_ptr == ptr)
+     {
+         return;
+     }
+ 
++    m_base_ptr = ptr;
++    m_is_visited = true;
++
+     if (ptr != nullptr)
+     {
+         DebugInfoTypeDef buf;
+@@ -1014,10 +1017,14 @@ void PrimitiveTypeInfo::DumpStrings(char* ptr, int& offset)
+ 
+ void PrimitiveTypeInfo::DumpDebugInfo(char *ptr, int &offset)
+ {
+-    if (m_type_offset != 0)
++    if (m_is_visited && m_base_ptr == ptr)
+     {
+         return;
+     }
++
++    m_base_ptr = ptr;
++    m_is_visited = true;
++
+     m_typedef_info->DumpDebugInfo(ptr, offset);
+ 
+     if (ptr != nullptr)
+@@ -1031,13 +1038,12 @@ void PrimitiveTypeInfo::DumpDebugInfo(char *ptr, int &offset)
+         memcpy(ptr + offset,
+                &bufType,
+                sizeof(DebugInfoType));
+-        m_type_offset = offset;
++
++        // Replace offset from real type to typedef
++        m_type_offset = m_typedef_info->m_typedef_type_offset;
+     }
+ 
+     offset += sizeof(DebugInfoType);
+-    // Replace offset from real type to typedef
+-    if (ptr != nullptr)
+-        m_type_offset = m_typedef_info->m_typedef_type_offset;
+ }
+ 
+ ClassTypeInfo::ClassTypeInfo(TypeHandle typeHandle, int num_members, FunctionMemberPtrArrayHolder &method)
+@@ -1106,7 +1112,21 @@ void TypeMember::DumpDebugInfo(char* ptr, int& offset)
+ void TypeMember::DumpStaticDebugInfo(char* ptr, int& offset)
+ {
+     const int ptrSize = sizeof(TADDR);
+-    int bufSize = 0;
++    const int valueTypeBufSize = ptrSize + 6;
++    const int refTypeBufSize = ptrSize + 2;
++
++    bool isValueType = m_member_type->GetTypeHandle().GetSignatureCorElementType() ==
++                            ELEMENT_TYPE_VALUETYPE;
++    int bufSize;
++    if (isValueType)
++    {
++        bufSize = valueTypeBufSize;
++    }
++    else
++    {
++        bufSize = refTypeBufSize;
++    }
++
+     if (ptr != nullptr)
+     {
+         DebugInfoStaticMember memberEntry;
+@@ -1117,12 +1137,9 @@ void TypeMember::DumpStaticDebugInfo(char* ptr, int& offset)
+ 
+         // for value type static fields compute address as:
+         // addr = (*addr+sizeof(OBJECTREF))
+-        if (m_member_type->GetTypeHandle().GetSignatureCorElementType() ==
+-                ELEMENT_TYPE_VALUETYPE)
++        if (isValueType)
+         {
+-            bufSize = ptrSize + 6;
+-
+-            char buf[ptrSize + 6] = {0};
++            char buf[valueTypeBufSize] = {0};
+             buf[0] = ptrSize + 5;
+             buf[1] = DW_OP_addr;
+ 
+@@ -1140,9 +1157,7 @@ void TypeMember::DumpStaticDebugInfo(char* ptr, int& offset)
+         }
+         else
+         {
+-            bufSize = ptrSize + 2;
+-
+-            char buf[ptrSize + 2] = {0};
++            char buf[refTypeBufSize] = {0};
+             buf[0] = ptrSize + 1;
+             buf[1] = DW_OP_addr;
+ 
+@@ -1500,10 +1515,14 @@ void RefTypeInfo::DumpStrings(char* ptr, int& offset)
+ 
+ void RefTypeInfo::DumpDebugInfo(char* ptr, int& offset)
+ {
+-    if (m_type_offset != 0)
++    if (m_is_visited && m_base_ptr == ptr)
+     {
+         return;
+     }
++
++    m_base_ptr = ptr;
++    m_is_visited = true;
++
+     m_type_offset = offset;
+     offset += sizeof(DebugInfoRefType);
+     m_value_type->DumpDebugInfo(ptr, offset);
+@@ -1523,10 +1542,14 @@ void RefTypeInfo::DumpDebugInfo(char* ptr, int& offset)
+ 
+ void NamedRefTypeInfo::DumpDebugInfo(char* ptr, int& offset)
+ {
+-    if (m_type_offset != 0)
++    if (m_is_visited && m_base_ptr == ptr)
+     {
+         return;
+     }
++
++    m_base_ptr = ptr;
++    m_is_visited = true;
++
+     m_type_offset = offset;
+     offset += sizeof(DebugInfoRefType) + sizeof(DebugInfoTypeDef);
+     m_value_type->DumpDebugInfo(ptr, offset);
+@@ -1553,28 +1576,23 @@ void NamedRefTypeInfo::DumpDebugInfo(char* ptr, int& offset)
+ 
+ void ClassTypeInfo::DumpDebugInfo(char* ptr, int& offset)
+ {
+-    if (m_type_offset != 0)
++    if (m_is_visited && m_base_ptr == ptr)
+     {
+         return;
+     }
+ 
++    m_base_ptr = ptr;
++    m_is_visited = true;
++
+     if (m_parent != nullptr)
+     {
+-        if (m_parent->m_type_offset == 0)
+-        {
+-            m_parent->DumpDebugInfo(ptr, offset);
+-        }
+-        else if (RefTypeInfo* m_p = dynamic_cast<RefTypeInfo*>(m_parent))
+-        {
+-            if (m_p->m_value_type->m_type_offset == 0)
+-                m_p->m_value_type->DumpDebugInfo(ptr, offset);
+-        }
++        m_parent->DumpDebugInfo(ptr, offset);
+     }
+ 
+     // make sure that types of all members are dumped
+     for (int i = 0; i < m_num_members; ++i)
+     {
+-        if (members[i].m_member_type->m_type_offset == 0 && members[i].m_member_type != this)
++        if (members[i].m_member_type != this)
+         {
+             members[i].m_member_type->DumpDebugInfo(ptr, offset);
+         }
+@@ -1638,14 +1656,16 @@ void ClassTypeInfo::DumpDebugInfo(char* ptr, int& offset)
+ 
+ void ArrayTypeInfo::DumpDebugInfo(char* ptr, int& offset)
+ {
+-    if (m_type_offset != 0)
++    if (m_is_visited && m_base_ptr == ptr)
+     {
+         return;
+     }
+-    if (m_elem_type->m_type_offset == 0)
+-    {
+-        m_elem_type->DumpDebugInfo(ptr, offset);
+-    }
++
++    m_base_ptr = ptr;
++    m_is_visited = true;
++
++    m_elem_type->DumpDebugInfo(ptr, offset);
++
+     if (ptr != nullptr)
+     {
+         DebugInfoArrayType arrType;
+diff --git a/src/vm/gdbjit.h b/src/vm/gdbjit.h
+index ebd5a7a..d2843bb 100644
+--- a/src/vm/gdbjit.h
++++ b/src/vm/gdbjit.h
+@@ -119,12 +119,21 @@ struct SymbolsInfo
+ class DwarfDumpable
+ {
+ public:
++    DwarfDumpable() :
++        m_base_ptr(nullptr),
++        m_is_visited(false)
++    {
++    }
++
+     // writes all string literals this type needs to ptr
+     virtual void DumpStrings(char* ptr, int& offset) = 0;
+ 
+     virtual void DumpDebugInfo(char* ptr, int& offset) = 0;
+ 
+     virtual ~DwarfDumpable() {}
++
++    char *m_base_ptr;
++    bool m_is_visited;
+ };
+ 
+ class LocalsInfo
+-- 
+1.9.1
+
+
+From d1a968702e2fec725255ec77de254293104b191f Mon Sep 17 00:00:00 2001
+From: Jan Vorlicek <janvorli@microsoft.com>
+Date: Wed, 13 Sep 2017 08:16:39 -0700
+Subject: [PATCH 31/36] Port to 2.0.0 - Fix ARM32 secure delegate bug
+
+This change fixes a bug that causes crashes when secure delegate is
+invoked on ARM32 with legacy codegen. Register R4 was loaded with
+indirection slot address and immediatelly marked as trashed, so the JIT
+compiler reused it before the call that was supposed to have that value
+in R4.
+The fix was to move the reg trashing after the call.
+There was also an incorrect marking of that address as EA_PTRSIZE
+while it should be EA_BYREF, so I've fixed that too.
+---
+ src/jit/codegenlegacy.cpp | 17 ++++++++++++++++-
+ 1 file changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/src/jit/codegenlegacy.cpp b/src/jit/codegenlegacy.cpp
+index d653511..b8a239a 100644
+--- a/src/jit/codegenlegacy.cpp
++++ b/src/jit/codegenlegacy.cpp
+@@ -18632,12 +18632,20 @@ regMaskTP CodeGen::genCodeForCall(GenTreeCall* call, bool valUsed)
+         firstTgtOffs = pInfo->offsetOfDelegateFirstTarget;
+ 
+ #ifdef _TARGET_ARM_
++        // Ensure that we don't trash any of these registers if we have to load
++        // the helper call target into a register to invoke it.
++        regMaskTP regsUsed = 0;
++
+         if ((call->gtCallMoreFlags & GTF_CALL_M_SECURE_DELEGATE_INV))
+         {
+-            getEmitter()->emitIns_R_R_I(INS_add, EA_PTRSIZE, REG_VIRTUAL_STUB_PARAM, regThis,
++            getEmitter()->emitIns_R_R_I(INS_add, EA_BYREF, REG_VIRTUAL_STUB_PARAM, regThis,
+                                         pInfo->offsetOfSecureDelegateIndirectCell);
+             regTracker.rsTrackRegTrash(REG_VIRTUAL_STUB_PARAM);
++
++            // Ensure that the virtual stub param info register doesn't get reused before the call is taken
++            regSet.rsLockReg(RBM_VIRTUAL_STUB_PARAM, &regsUsed);
+         }
++
+ #endif // _TARGET_ARM_
+ 
+         // Grab an available register to use for the CALL indirection
+@@ -18661,6 +18669,13 @@ regMaskTP CodeGen::genCodeForCall(GenTreeCall* call, bool valUsed)
+                                    INDEBUG_LDISASM_COMMA(sigInfo) NULL, // addr
+                                    args, retSize, gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur,
+                                    gcInfo.gcRegByrefSetCur, ilOffset, indCallReg);
++
++#ifdef _TARGET_ARM_
++        if ((call->gtCallMoreFlags & GTF_CALL_M_SECURE_DELEGATE_INV))
++        {
++            regSet.rsUnlockReg(RBM_VIRTUAL_STUB_PARAM, regsUsed);
++        }
++#endif // _TARGET_ARM_
+     }
+     else
+ 
+-- 
+1.9.1
+
+
+From d768ef837a0a4f13cec786f0d8aa7278abf10bdb Mon Sep 17 00:00:00 2001
+From: Jonghyun Park <parjong@gmail.com>
+Date: Tue, 19 Sep 2017 17:17:10 +0900
+Subject: [PATCH 32/36] Disable VSD Stub Kind Prediction on H/W Exception
+ (#14051)
+
+* Disable VSD Stub Kind Prediction on H/W Exception
+
+* Add a comment on a false argument
+
+* Use BOOL (instead of bool) for consistency
+
+* Replace remaining bool/true/false with BOOL/TRUE/FALSE
+---
+ src/vm/exceptionhandling.cpp | 2 +-
+ src/vm/virtualcallstub.cpp   | 8 ++++----
+ src/vm/virtualcallstub.h     | 7 ++++---
+ 3 files changed, 9 insertions(+), 8 deletions(-)
+
+diff --git a/src/vm/exceptionhandling.cpp b/src/vm/exceptionhandling.cpp
+index abea194..2802f73 100644
+--- a/src/vm/exceptionhandling.cpp
++++ b/src/vm/exceptionhandling.cpp
+@@ -5146,7 +5146,7 @@ static BOOL IsIPinVirtualStub(PCODE f_IP)
+     }
+ 
+     VirtualCallStubManager::StubKind sk;
+-    VirtualCallStubManager::FindStubManager(f_IP, &sk);
++    VirtualCallStubManager::FindStubManager(f_IP, &sk, FALSE /* usePredictStubKind */);
+ 
+     if (sk == VirtualCallStubManager::SK_DISPATCH)
+     {
+diff --git a/src/vm/virtualcallstub.cpp b/src/vm/virtualcallstub.cpp
+index e753860..e659e35 100644
+--- a/src/vm/virtualcallstub.cpp
++++ b/src/vm/virtualcallstub.cpp
+@@ -970,7 +970,7 @@ void VirtualCallStubManager::Reclaim()
+ 
+ //----------------------------------------------------------------------------
+ /* static */
+-VirtualCallStubManager *VirtualCallStubManager::FindStubManager(PCODE stubAddress,  StubKind* wbStubKind)
++VirtualCallStubManager *VirtualCallStubManager::FindStubManager(PCODE stubAddress,  StubKind* wbStubKind, BOOL usePredictStubKind)
+ {
+     CONTRACTL {
+         NOTHROW;
+@@ -995,7 +995,7 @@ VirtualCallStubManager *VirtualCallStubManager::FindStubManager(PCODE stubAddres
+     // VirtualCallStubManager::isDispatchingStub
+     //
+     CONTRACT_VIOLATION(SOToleranceViolation);
+-    kind = pCur->getStubKind(stubAddress);
++    kind = pCur->getStubKind(stubAddress, usePredictStubKind);
+     if (kind != SK_UNKNOWN)
+     {
+         if (wbStubKind)
+@@ -1007,7 +1007,7 @@ VirtualCallStubManager *VirtualCallStubManager::FindStubManager(PCODE stubAddres
+     // See if we are managed by the shared domain
+     //
+     pCur = SharedDomain::GetDomain()->GetLoaderAllocator()->GetVirtualCallStubManager();
+-    kind = pCur->getStubKind(stubAddress);
++    kind = pCur->getStubKind(stubAddress, usePredictStubKind);
+     if (kind != SK_UNKNOWN)
+     {
+         if (wbStubKind)
+@@ -1022,7 +1022,7 @@ VirtualCallStubManager *VirtualCallStubManager::FindStubManager(PCODE stubAddres
+     {
+         _ASSERTE(pCur != NULL);
+ 
+-        kind = pCur->getStubKind(stubAddress);
++        kind = pCur->getStubKind(stubAddress, usePredictStubKind);
+         if (kind != SK_UNKNOWN)
+         {
+             if (wbStubKind)
+diff --git a/src/vm/virtualcallstub.h b/src/vm/virtualcallstub.h
+index 7b6fedf..b8984ea 100644
+--- a/src/vm/virtualcallstub.h
++++ b/src/vm/virtualcallstub.h
+@@ -317,7 +317,7 @@ public:
+     /* know thine own stubs.  It is possible that when multiple
+     virtualcallstub managers are built that these may need to become
+     non-static, and the callers modified accordingly */
+-    StubKind getStubKind(PCODE stubStartAddress)
++    StubKind getStubKind(PCODE stubStartAddress, BOOL usePredictStubKind = TRUE)
+     {
+         WRAPPER_NO_CONTRACT;
+         SUPPORTS_DAC;
+@@ -329,7 +329,7 @@ public:
+ 
+         // Rather than calling IsInRange(stubStartAddress) for each possible stub kind
+         // we can peek at the assembly code and predict which kind of a stub we have
+-        StubKind predictedKind = predictStubKind(stubStartAddress);
++        StubKind predictedKind = (usePredictStubKind) ? predictStubKind(stubStartAddress) : SK_UNKNOWN;
+ 
+         if (predictedKind == SK_DISPATCH)
+         {
+@@ -732,7 +732,8 @@ private:
+ public:
+     // Given a stub address, find the VCSManager that owns it.
+     static VirtualCallStubManager *FindStubManager(PCODE addr,
+-                                                   StubKind* wbStubKind = NULL);
++                                                   StubKind* wbStubKind = NULL,
++                                                   BOOL usePredictStubKind = TRUE);
+ 
+ #ifndef DACCESS_COMPILE
+     // insert a linked list of indirection cells at the beginning of m_RecycledIndCellList
+-- 
+1.9.1
+
+
+From 86547d43d046e6f2c747c893f7b4ada94cc823ab Mon Sep 17 00:00:00 2001
+From: Konstantin Baladurin <k.baladurin@partner.samsung.com>
+Date: Thu, 5 Oct 2017 11:31:44 +0300
+Subject: [PATCH 33/36] Fix clrstack command of lldb sosplugin on x86 (#13973)
+
+* [x86/Linux][SOS] Add support for x86 in GetContextFromFrame
+
+It's need for 'clrstack -f' command of SOS plugin on x86.
+
+* [x86/Linux] Fix RtlpGetFunctionEndAddress function
+
+We should use PTR_UNWIND_INFO instead of PUNWIND_INFO for pointer to
+UNWIND_INFO structure because it's pointer from other process and
+we need to use DAC to read data using it.
+
+* [x86/Linux][SOS] Define DEBUG_STACK_CONTEXT for x86
+
+It's needed for 'clrstack -f' command in libsosplugin.
+
+* [x86/Linux] Fix undefined references in libmscordbi.so on x86
+
+Asm block like following:
+__asm fnsave currentFPUState
+
+where currentFPUState is structure works with MSVC but leads to
+undefined reference currentFPUState in the binary with other
+compilers. So rewrite such asm blocks for them.
+
+This patch fixes error "Unable to load 'libmscordbi.so'" during
+execution of 'clrstack -f' command of SOS plugin on x86.
+
+* [x86/Linux] Fix calling convention inconsistency
+
+WINAPI and STDAPI are defined as __cdecl but in some cases functions
+with these attributes are called using stdcall calling convention.
+
+It leads to crashes during execution of 'clrstack -i' command of
+SOS plugin on x86.
+---
+ src/ToolBox/SOS/Strike/strike.cpp       |  4 +++-
+ src/ToolBox/SOS/lldbplugin/services.cpp | 19 +++++++++++++++++
+ src/debug/di/rsthread.cpp               | 30 ++++++++++++++++++++++++++-
+ src/debug/di/valuehome.cpp              | 36 +++++++++++++++++++++++++++++++++
+ src/debug/shim/debugshim.cpp            |  4 ++--
+ src/dlls/mscordbi/mscordbi.cpp          |  2 +-
+ src/inc/clrnt.h                         |  2 +-
+ 7 files changed, 91 insertions(+), 6 deletions(-)
+
+diff --git a/src/ToolBox/SOS/Strike/strike.cpp b/src/ToolBox/SOS/Strike/strike.cpp
+index 2e20b28..6d659f9 100644
+--- a/src/ToolBox/SOS/Strike/strike.cpp
++++ b/src/ToolBox/SOS/Strike/strike.cpp
+@@ -324,7 +324,9 @@ DECLARE_API(IP2MD)
+ #define DEBUG_STACK_CONTEXT AMD64_CONTEXT
+ #elif defined(_TARGET_ARM_) // _TARGET_WIN64_
+ #define DEBUG_STACK_CONTEXT ARM_CONTEXT
+-#endif // _TARGET_ARM_
++#elif defined(_TARGET_X86_) // _TARGET_ARM_
++#define DEBUG_STACK_CONTEXT X86_CONTEXT
++#endif // _TARGET_X86_
+ 
+ #ifdef DEBUG_STACK_CONTEXT
+ // I use a global set of frames for stack walking on win64 because the debugger's
+diff --git a/src/ToolBox/SOS/lldbplugin/services.cpp b/src/ToolBox/SOS/lldbplugin/services.cpp
+index e3eee4f..262f814 100644
+--- a/src/ToolBox/SOS/lldbplugin/services.cpp
++++ b/src/ToolBox/SOS/lldbplugin/services.cpp
+@@ -1554,6 +1554,25 @@ LLDBServices::GetContextFromFrame(
+     dtcontext->R10 = GetRegister(frame, "r10");
+     dtcontext->R11 = GetRegister(frame, "r11");
+     dtcontext->R12 = GetRegister(frame, "r12");
++#elif DBG_TARGET_X86
++    dtcontext->Eip = frame.GetPC();
++    dtcontext->Esp = frame.GetSP();
++    dtcontext->Ebp = frame.GetFP();
++    dtcontext->EFlags = GetRegister(frame, "eflags");
++
++    dtcontext->Edi = GetRegister(frame, "edi");
++    dtcontext->Esi = GetRegister(frame, "esi");
++    dtcontext->Ebx = GetRegister(frame, "ebx");
++    dtcontext->Edx = GetRegister(frame, "edx");
++    dtcontext->Ecx = GetRegister(frame, "ecx");
++    dtcontext->Eax = GetRegister(frame, "eax");
++
++    dtcontext->SegCs = GetRegister(frame, "cs");
++    dtcontext->SegSs = GetRegister(frame, "ss");
++    dtcontext->SegDs = GetRegister(frame, "ds");
++    dtcontext->SegEs = GetRegister(frame, "es");
++    dtcontext->SegFs = GetRegister(frame, "fs");
++    dtcontext->SegGs = GetRegister(frame, "gs");
+ #endif
+ }
+ 
+diff --git a/src/debug/di/rsthread.cpp b/src/debug/di/rsthread.cpp
+index 02fae00..aa85de8 100644
+--- a/src/debug/di/rsthread.cpp
++++ b/src/debug/di/rsthread.cpp
+@@ -1471,7 +1471,15 @@ void CordbThread::Get32bitFPRegisters(CONTEXT * pContext)
+ 
+     FLOATING_SAVE_AREA currentFPUState;
+ 
++#ifdef _MSC_VER
+     __asm fnsave currentFPUState // save the current FPU state.
++#else
++    __asm__ __volatile__
++    (
++        "  fnsave %0\n" \
++        : "=m"(currentFPUState)
++    );
++#endif
+ 
+     floatarea.StatusWord &= 0xFF00; // remove any error codes.
+     floatarea.ControlWord |= 0x3F; // mask all exceptions.
+@@ -1482,12 +1490,22 @@ void CordbThread::Get32bitFPRegisters(CONTEXT * pContext)
+     // @dbgtodo Microsoft crossplat: the conversion from a series of bytes to a floating 
+     // point value will need to be done with an explicit conversion routine to unpack
+     // the IEEE format and compute the real number value represented. 
+-    
++
++#ifdef _MSC_VER
+     __asm
+     {
+         fninit
+         frstor floatarea          ;; reload the threads FPU state.
+     }
++#else
++    __asm__
++    (
++        "  fninit\n" \
++        "  frstor %0\n" \
++        : /* no outputs */
++        : "m"(floatarea)
++    );
++#endif
+ 
+     unsigned int i;
+ 
+@@ -1498,11 +1516,21 @@ void CordbThread::Get32bitFPRegisters(CONTEXT * pContext)
+         m_floatValues[i] = td;
+     }
+ 
++#ifdef _MSC_VER
+     __asm
+     {
+         fninit
+         frstor currentFPUState    ;; restore our saved FPU state.
+     }
++#else
++    __asm__
++    (
++        "  fninit\n" \
++        "  frstor %0\n" \
++        : /* no outputs */
++        : "m"(currentFPUState)
++    );
++#endif
+ 
+     m_fFloatStateValid = true;
+     m_floatStackTop = floatStackTop;
+diff --git a/src/debug/di/valuehome.cpp b/src/debug/di/valuehome.cpp
+index 837afd5..6cae8c1 100644
+--- a/src/debug/di/valuehome.cpp
++++ b/src/debug/di/valuehome.cpp
+@@ -481,18 +481,36 @@ void FloatRegValueHome::SetEnregisteredValue(MemoryRange newValue,
+     // restore our original state.
+     DT_FLOATING_SAVE_AREA currentFPUState;
+ 
++    #ifdef _MSC_VER
+     __asm fnsave currentFPUState // save the current FPU state.
++    #else
++    __asm__ __volatile__
++    (
++        "  fnsave %0\n" \
++        : "=m"(currentFPUState)
++    );
++    #endif
+ 
+     // Copy the state out of the context.
+     DT_FLOATING_SAVE_AREA floatarea = pContext->FloatSave;
+     floatarea.StatusWord &= 0xFF00; // remove any error codes.
+     floatarea.ControlWord |= 0x3F; // mask all exceptions.
+ 
++    #ifdef _MSC_VER
+     __asm
+     {
+         fninit
+         frstor floatarea          ;; reload the threads FPU state.
+     }
++    #else
++    __asm__
++    (
++        "  fninit\n" \
++        "  frstor %0\n" \
++        : /* no outputs */
++        : "m"(floatarea)
++    );
++    #endif
+ 
+     double td; // temp double
+     double popArea[DebuggerIPCE_FloatCount];
+@@ -519,17 +537,35 @@ void FloatRegValueHome::SetEnregisteredValue(MemoryRange newValue,
+     }
+ 
+     // Save out the modified float area.
++    #ifdef _MSC_VER
+     __asm fnsave floatarea
++    #else
++    __asm__ __volatile__
++    (
++        "  fnsave %0\n" \
++        : "=m"(floatarea)
++    );
++    #endif
+ 
+     // Put it into the context.
+     pContext->FloatSave= floatarea;
+ 
+     // Restore our FPU state
++    #ifdef _MSC_VER
+     __asm
+     {
+         fninit
+         frstor currentFPUState    ;; restore our saved FPU state.
+     }
++    #else
++    __asm__
++    (
++        "  fninit\n" \
++        "  frstor %0\n" \
++        : /* no outputs */
++        : "m"(currentFPUState)
++    );
++    #endif
+     #endif // DBG_TARGET_X86
+ 
+     // update the thread's floating point stack
+diff --git a/src/debug/shim/debugshim.cpp b/src/debug/shim/debugshim.cpp
+index 03b9c5f..08f1ec5 100644
+--- a/src/debug/shim/debugshim.cpp
++++ b/src/debug/shim/debugshim.cpp
+@@ -38,7 +38,7 @@
+ // CLRDebuggingImpl implementation (ICLRDebugging)
+ //*****************************************************************************
+ 
+-typedef HRESULT (__stdcall  *OpenVirtualProcessImplFnPtr)(ULONG64 clrInstanceId, 
++typedef HRESULT (STDAPICALLTYPE  *OpenVirtualProcessImplFnPtr)(ULONG64 clrInstanceId, 
+     IUnknown * pDataTarget,
+     HMODULE hDacDll,
+     CLR_DEBUGGING_VERSION * pMaxDebuggerSupportedVersion,
+@@ -46,7 +46,7 @@ typedef HRESULT (__stdcall  *OpenVirtualProcessImplFnPtr)(ULONG64 clrInstanceId,
+     IUnknown ** ppInstance,
+     CLR_DEBUGGING_PROCESS_FLAGS * pdwFlags);
+ 
+-typedef HRESULT (__stdcall  *OpenVirtualProcess2FnPtr)(ULONG64 clrInstanceId, 
++typedef HRESULT (STDAPICALLTYPE  *OpenVirtualProcess2FnPtr)(ULONG64 clrInstanceId, 
+     IUnknown * pDataTarget,
+     HMODULE hDacDll,
+     REFIID riid,
+diff --git a/src/dlls/mscordbi/mscordbi.cpp b/src/dlls/mscordbi/mscordbi.cpp
+index 4ef92c7..0197d13 100644
+--- a/src/dlls/mscordbi/mscordbi.cpp
++++ b/src/dlls/mscordbi/mscordbi.cpp
+@@ -11,7 +11,7 @@
+ //*****************************************************************************
+ #include "stdafx.h"
+ 
+-extern BOOL STDMETHODCALLTYPE DbgDllMain(HINSTANCE hInstance, DWORD dwReason,
++extern BOOL WINAPI DbgDllMain(HINSTANCE hInstance, DWORD dwReason,
+                                          LPVOID lpReserved);
+ 
+ //*****************************************************************************
+diff --git a/src/inc/clrnt.h b/src/inc/clrnt.h
+index ebea066..487a370 100644
+--- a/src/inc/clrnt.h
++++ b/src/inc/clrnt.h
+@@ -862,7 +862,7 @@ RtlpGetFunctionEndAddress (
+     __in TADDR ImageBase
+     )
+ {
+-    PUNWIND_INFO pUnwindInfo = (PUNWIND_INFO)(ImageBase + FunctionEntry->UnwindData);
++    PTR_UNWIND_INFO pUnwindInfo = (PTR_UNWIND_INFO)(ImageBase + FunctionEntry->UnwindData);
+ 
+     return FunctionEntry->BeginAddress + pUnwindInfo->FunctionLength;
+ }
+-- 
+1.9.1
+
+
+From 60fcbc709b8e8a3012ec323e3da499c356851737 Mon Sep 17 00:00:00 2001
+From: Konstantin Baladurin <k.baladurin@partner.samsung.com>
+Date: Tue, 3 Oct 2017 21:28:06 +0300
+Subject: [PATCH 34/36] Use addresses without sign extension in lldb plugin
+ (#14009)
+
+lldb doesn't expect sign-extended addresses so we need to convert
+them before using with lldb API.
+
+This patch allows to use SOS plugin for core files in lldb on 32-bit
+platforms and also fixes output of the 'clrstack -f' command.
+---
+ src/ToolBox/SOS/lldbplugin/services.cpp | 23 +++++++++++++++++++++++
+ 1 file changed, 23 insertions(+)
+
+diff --git a/src/ToolBox/SOS/lldbplugin/services.cpp b/src/ToolBox/SOS/lldbplugin/services.cpp
+index 262f814..3186920 100644
+--- a/src/ToolBox/SOS/lldbplugin/services.cpp
++++ b/src/ToolBox/SOS/lldbplugin/services.cpp
+@@ -8,6 +8,8 @@
+ #include <string.h>
+ #include <string>
+ 
++#define CONVERT_FROM_SIGN_EXTENDED(offset) ((ULONG_PTR)(offset))
++
+ ULONG g_currentThreadIndex = -1;
+ ULONG g_currentThreadSystemId = -1;
+ char *g_coreclrDirectory;
+@@ -545,6 +547,9 @@ LLDBServices::Disassemble(
+     uint8_t byte;
+     int cch;
+ 
++    // lldb doesn't expect sign-extended address
++    offset = CONVERT_FROM_SIGN_EXTENDED(offset);
++
+     if (buffer == NULL)
+     {
+         hr = E_INVALIDARG;
+@@ -750,6 +755,9 @@ LLDBServices::ReadVirtual(
+     lldb::SBError error;
+     size_t read = 0;
+ 
++    // lldb doesn't expect sign-extended address
++    offset = CONVERT_FROM_SIGN_EXTENDED(offset);
++
+     lldb::SBProcess process = GetCurrentProcess();
+     if (!process.IsValid())
+     {
+@@ -776,6 +784,9 @@ LLDBServices::WriteVirtual(
+     lldb::SBError error;
+     size_t written = 0;
+ 
++    // lldb doesn't expect sign-extended address
++    offset = CONVERT_FROM_SIGN_EXTENDED(offset);
++
+     lldb::SBProcess process = GetCurrentProcess();
+     if (!process.IsValid())
+     {
+@@ -822,6 +833,9 @@ LLDBServices::GetNameByOffset(
+     lldb::SBSymbol symbol;
+     std::string str;
+ 
++    // lldb doesn't expect sign-extended address
++    offset = CONVERT_FROM_SIGN_EXTENDED(offset);
++
+     target = m_debugger.GetSelectedTarget();
+     if (!target.IsValid())
+     {
+@@ -1012,6 +1026,9 @@ LLDBServices::GetModuleByOffset(
+     lldb::SBTarget target;
+     int numModules;
+ 
++    // lldb doesn't expect sign-extended address
++    offset = CONVERT_FROM_SIGN_EXTENDED(offset);
++
+     target = m_debugger.GetSelectedTarget();
+     if (!target.IsValid())
+     {
+@@ -1076,6 +1093,9 @@ LLDBServices::GetModuleNames(
+     lldb::SBFileSpec fileSpec;
+     HRESULT hr = S_OK;
+ 
++    // lldb doesn't expect sign-extended address
++    base = CONVERT_FROM_SIGN_EXTENDED(base);
++
+     target = m_debugger.GetSelectedTarget();
+     if (!target.IsValid())
+     {
+@@ -1167,6 +1187,9 @@ LLDBServices::GetLineByOffset(
+     lldb::SBLineEntry lineEntry;
+     std::string str;
+ 
++    // lldb doesn't expect sign-extended address
++    offset = CONVERT_FROM_SIGN_EXTENDED(offset);
++
+     target = m_debugger.GetSelectedTarget();
+     if (!target.IsValid())
+     {
+-- 
+1.9.1
+
+
+From 53c8ae7ddc79ba7a9de57b21e482d30c6d4b328b Mon Sep 17 00:00:00 2001
+From: Konstantin Baladurin <k.baladurin@partner.samsung.com>
+Date: Fri, 29 Sep 2017 11:08:01 +0300
+Subject: [PATCH 35/36] Fix assert in HelperMethodFrame::UpdateRegDisplay
+ (#14235)
+
+In some cases during execution of the SOS command 'clrstack -i'
+portability assert in HelperMethodFrame::UpdateRegDisplay occurs.
+This patch removes this assert and adds corresponding implementation.
+---
+ src/vm/i386/cgenx86.cpp | 25 ++++++++++++++++++++++++-
+ 1 file changed, 24 insertions(+), 1 deletion(-)
+
+diff --git a/src/vm/i386/cgenx86.cpp b/src/vm/i386/cgenx86.cpp
+index ca81bb7..b4277db 100644
+--- a/src/vm/i386/cgenx86.cpp
++++ b/src/vm/i386/cgenx86.cpp
+@@ -379,7 +379,30 @@ void HelperMethodFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
+     pRD->IsCallerSPValid      = FALSE;        // Don't add usage of this field.  This is only temporary.
+ 
+ #ifdef DACCESS_COMPILE
+-    PORTABILITY_ASSERT("HelperMethodFrame::UpdateRegDisplay");
++    // For DAC, we may get here when the HMF is still uninitialized.
++    // So we may need to unwind here.
++    if (!m_MachState.isValid())
++    {
++        // This allocation throws on OOM.
++        MachState* pUnwoundState = (MachState*)DacAllocHostOnlyInstance(sizeof(*pUnwoundState), true);
++
++        InsureInit(false, pUnwoundState);
++
++        pRD->pCurrentContext->Eip = pRD->ControlPC = pUnwoundState->GetRetAddr();
++        pRD->pCurrentContext->Esp = pRD->SP        = pUnwoundState->esp();
++
++#define CALLEE_SAVED_REGISTER(regname) pRD->pCurrentContext->regname = *((DWORD*) pUnwoundState->p##regname());
++        ENUM_CALLEE_SAVED_REGISTERS();
++#undef CALLEE_SAVED_REGISTER
++
++#define CALLEE_SAVED_REGISTER(regname) pRD->pCurrentContextPointers->regname = (DWORD*) pUnwoundState->p##regname();
++        ENUM_CALLEE_SAVED_REGISTERS();
++#undef CALLEE_SAVED_REGISTER
++
++        ClearRegDisplayArgumentAndScratchRegisters(pRD);
++
++        return;
++    }
+ #endif // DACCESS_COMPILE
+ 
+     pRD->pCurrentContext->Eip = pRD->ControlPC = m_MachState.GetRetAddr();
+-- 
+1.9.1
+
+
+From 528277606cacbe1362d1e98315d8ebb45cd39e39 Mon Sep 17 00:00:00 2001
+From: Konstantin Baladurin <k.baladurin@partner.samsung.com>
+Date: Thu, 28 Sep 2017 19:26:39 +0300
+Subject: [PATCH 36/36] Fix typo in SetDebuggerREGDISPLAYFromREGDISPLAY
+ (#14221)
+
+Fix typo in SetDebuggerREGDISPLAYFromREGDISPLAY: Esi -> Eax.
+---
+ src/debug/shared/i386/primitives.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/debug/shared/i386/primitives.cpp b/src/debug/shared/i386/primitives.cpp
+index ab22a5d..6152aa2 100644
+--- a/src/debug/shared/i386/primitives.cpp
++++ b/src/debug/shared/i386/primitives.cpp
+@@ -93,7 +93,7 @@ void SetDebuggerREGDISPLAYFromREGDISPLAY(DebuggerREGDISPLAY* pDRD, REGDISPLAY* p
+     pDRD->Ebx = (pRD->GetEbxLocation() == NULL ? 0 : *pRD->GetEbxLocation());
+     pDRD->Edx = (pRD->GetEdxLocation() == NULL ? 0 : *pRD->GetEdxLocation());
+     pDRD->Ecx = (pRD->GetEcxLocation() == NULL ? 0 : *pRD->GetEcxLocation());
+-    pDRD->Eax = (pRD->GetEsiLocation() == NULL ? 0 : *pRD->GetEaxLocation());
++    pDRD->Eax = (pRD->GetEaxLocation() == NULL ? 0 : *pRD->GetEaxLocation());
+ 
+ #if defined(USE_REMOTE_REGISTER_ADDRESS)
+     pDRD->pFP = PushedRegAddr(pRD, FPAddress);
+-- 
+1.9.1
+
