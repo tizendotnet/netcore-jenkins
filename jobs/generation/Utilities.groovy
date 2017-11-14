@@ -78,6 +78,7 @@ class Utilities {
         } else if (project == 'corefx') {
           shell("${dockerCommand} ./build.sh -\${config} -buildArch=\${targetArch} -RuntimeOS=tizen.4.0.0 -PortableBuild=false \${buildIdOpts} -- /p:BinPlaceNETCoreAppPackage=true /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts}")
           shell("${dockerCommand} ./build-packages.sh -\${config} -ArchGroup=\${targetArch} -RuntimeOS=tizen.4.0.0 -PortableBuild=false -- ${authorsOpts}")
+          shell("${dockerCommand} ./build-tests.sh -\${config} -buildArch=\${targetArch} -Outerloop -SkipTests")
         } else if (project == 'core-setup') {
           shell("${dockerCommand} ./build.sh -ConfigurationGroup=\${config} -TargetArchitecture=\${targetArch} -DistroRid=tizen.4.0.0-\${targetArch} -SkipTests=true -DisableCrossgen=true -PortableBuild=false -CrossBuild=true \${buildIdOpts} -- /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts}")
         }
