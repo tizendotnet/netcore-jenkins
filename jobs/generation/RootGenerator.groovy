@@ -5,13 +5,16 @@ import jobs.generation.Utilities
 def projectLoop = [ 'coreclr', 'corefx', 'core-setup' ]
 def branchLoop = [ 'coreclr' :
                   [ 'master',
-                    'release/2.0.0' ],
+                    'release/2.0.0',
+                    'release/2.1' ],
                    'corefx' :
                   [ 'master',
-                    'release/2.0.0' ],
+                    'release/2.0.0',
+                    'release/2.1' ],
                    'core-setup' :
                   [ 'master',
-                    'release/2.0.0' ]
+                    'release/2.0.0',
+                    'release/2.1' ]
                   ]
 def config = 'Release'
 def targetArch = 'armel'
