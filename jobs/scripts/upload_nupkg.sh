@@ -26,10 +26,10 @@ if [ ! -d ${_dir} ]; then
 fi
 
 for nupkg in $( find ${nupkg_dir} -iname "*.nupkg" -not -iname "*symbols*" ); do
-    ${dotnet_dir}/dotnet nuget push ${nupkg} -s ${feed} -k ${key} || true
+    ${dotnet_dir}/dotnet nuget push ${nupkg} -s ${feed} -k ${key} -t 900 || true
 done
 
 for nupkg in $( find ${nupkg_dir} -iname "*.symbols.nupkg" ); do
-    ${dotnet_dir}/dotnet nuget push ${nupkg} -s ${sfeed} -k ${key} || true
+    ${dotnet_dir}/dotnet nuget push ${nupkg} -s ${sfeed} -k ${key} -t 900 || true
 done
 
