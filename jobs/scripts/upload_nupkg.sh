@@ -25,11 +25,33 @@ if [ ! -d ${_dir} ]; then
     download
 fi
 
+nuget_push() {
+    local max_count=$((3))
+    local counter=$((0))
+    local exit_code=$((1))
+
+    while [ $exit_code -ne 0 ] && [ $counter -lt $max_count ]; do
+        ${dotnet_dir}/dotnet nuget push ${1} -s ${2} -k ${key} -t 900
+
+        exit_code=$?
+
+        if [ $exit_code -ne 0 ]; then
+            echo "Nuget push failed, retrying"
+        fi
+
+        counter=$((counter + 1))
+    done
+
+    if [ $exit_code -ne 0 ]; then
+        echo "Unable to push package ${1}, tried $max_count times"
+    fi
+}
+
 for nupkg in $( find ${nupkg_dir} -iname "*.nupkg" -not -iname "*symbols*" ); do
-    ${dotnet_dir}/dotnet nuget push ${nupkg} -s ${feed} -k ${key} -t 900 || true
+    nuget_push ${nupkg} ${feed}
 done
 
 for nupkg in $( find ${nupkg_dir} -iname "*.symbols.nupkg" ); do
-    ${dotnet_dir}/dotnet nuget push ${nupkg} -s ${sfeed} -k ${key} -t 900 || true
+    nuget_push ${nupkg} ${sfeed}
 done
 
