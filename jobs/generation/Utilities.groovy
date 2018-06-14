@@ -59,9 +59,16 @@ class Utilities {
       steps {
         conditionalSteps {
           condition {
-            not {
-              stringsMatch("\${buildid}", "stable", false)
-            }
+            and {
+              not {
+                stringsMatch("\${buildid}", "stable", false)
+              }
+              not {
+                stringsMatch("\${buildid}", "servicing", false)
+              }
+              not {
+                stringsMatch("\${buildid}", "rtm", false)
+              }
           }
 
           steps {
