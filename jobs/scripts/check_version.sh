@@ -8,7 +8,7 @@ convert_builddate()
 {
     local _version=$1; shift
 
-    # In case of stable release, return as is.
+    # In case of stable, rtm or servicing release, return as is.
     if [ "${_version}" == "stable" ] || [ "${_version}" == "servicing" ] || [ "${_version}" == "rtm" ] ; then
         echo "${_version}"
         exit 0
