@@ -69,6 +69,7 @@ class Utilities {
               not {
                 stringsMatch("\${buildid}", "rtm", false)
               }
+            }
           }
 
           steps {
@@ -87,6 +88,22 @@ class Utilities {
             environmentVariables {
               env("stableOpts", "/p:StabilizePackageVersion=true")
               env("packageOpts", "/p:PackageVersionStamp=")
+            }
+          }
+        }
+
+        conditionalSteps {
+          condition {
+            or {
+              stringsMatch("\${buildid}", "servicing", false)
+              stringsMatch("\${buildid}", "rtm", false)
+            }
+          }
+
+          steps {
+            environmentVariables {
+              env("stableOpts", "/p:StabilizePackageVersion=true")
+              env("packageOpts", "/p:PackageVersionStamp=\${buildid}")
             }
           }
         }
