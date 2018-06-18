@@ -49,8 +49,7 @@ cur_version=$( cat "dotnet-versions/build-info/dotnet/${project}/${branch}/Lates
 nupkg_versions_file="dotnet-versions/build-info/dotnet/${project}/${branch}/Latest_Packages.txt"
 
 if [ "${version}" == "${cur_version}" ]; then
-    echo "Version is not changed (${version})"
-    exit 1
+    echo "Version is not changed (${version}). Need to check commit too"
 fi
 
 pkglist=( "coreclr:Microsoft.NETCore.Runtime.CoreCLR:version.txt"
@@ -124,7 +123,12 @@ else
     commit=$( cat "${temp_dir}/${version_file}" )
 fi
 
-echo "Version is changed (${version} -> ${cur_version})"
+if [ "${sha1}" == "${commit}" ]; then
+    echo "Commit is not changed (${commit})"
+    exit 1
+fi
+
+echo "Version is changed (${version} (${sha1}) -> ${cur_version} (${commit}))"
 echo "version=${cur_version}" > "${prop_file}"
 echo "sha1=${commit}" >> "${prop_file}"
 echo "buildid=$( convert_builddate "${cur_version}" )" >> "${prop_file}"
