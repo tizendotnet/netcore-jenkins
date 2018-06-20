@@ -111,7 +111,7 @@ class Utilities {
         def authorsOpts = '/p:Authors=Tizen'
 
         if (project == 'coreclr') {
-          shell("${dockerCommand} ./build.sh cross clang4.0 \${config} \${targetArch} cmakeargs -DFEATURE_GDBJIT=TRUE stripSymbols -PortableBuild=false \${buildIdOpts} -- \${stableOpts} \${packageOpts} ${authorsOpts}")
+          shell("${dockerCommand} ./build.sh cross \${config} \${targetArch} cmakeargs -DFEATURE_GDBJIT=TRUE stripSymbols -PortableBuild=false \${buildIdOpts} -- \${stableOpts} \${packageOpts} ${authorsOpts}")
         } else if (project == 'corefx') {
           shell("${dockerCommand} ./build.sh -\${config} -buildArch=\${targetArch} -RuntimeOS=tizen.4.0.0 -PortableBuild=false \${buildIdOpts} -- \${stableOpts} \${packageOpts} /p:BinPlaceNETCoreAppPackage=true /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts}")
           shell("${dockerCommand} ./build-packages.sh -\${config} -ArchGroup=\${targetArch} -RuntimeOS=tizen.4.0.0 -PortableBuild=false -- ${authorsOpts}")
