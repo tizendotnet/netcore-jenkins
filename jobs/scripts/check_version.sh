@@ -123,8 +123,8 @@ else
     commit=$( cat "${temp_dir}/${version_file}" )
 fi
 
-if [ "${sha1}" == "${commit}" ]; then
-    echo "Commit is not changed (${commit})"
+if [ "${sha1}" == "${commit}" ] && [ "${version}" == "${cur_version}" ]; then
+    echo "Both commit and version are not changed (${commit})"
     exit 1
 fi
 
