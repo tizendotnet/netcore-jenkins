@@ -26,7 +26,7 @@ if [ ! -d ${_dir} ]; then
 fi
 
 nuget_push() {
-    local max_count=$((3))
+    local max_count=$((2))
     local counter=$((0))
     local exit_code=$((1))
 
