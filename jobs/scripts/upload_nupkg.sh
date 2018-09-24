@@ -47,11 +47,11 @@ nuget_push() {
     fi
 }
 
-for nupkg in $( find ${nupkg_dir} -iname "*.nupkg" -not -iname "*symbols*" ); do
+for nupkg in $( find ${nupkg_dir} -iname "*.nupkg" -not -iname "*symbols*" -not -iname "*transport.runtime.tizen.5.0.0-armel.Microsoft.NETCore.TestHost*" -not -iname "Microsoft.Extensions.DependencyModel*" ); do
     nuget_push ${nupkg} ${feed}
 done
 
-for nupkg in $( find ${nupkg_dir} -iname "*.symbols.nupkg" ); do
+for nupkg in $( find ${nupkg_dir} -iname "*.symbols.nupkg" -not -iname "*runtime.tizen.5.0.0-armel.Microsoft.NETCore.TestHost*"); do
     nuget_push ${nupkg} ${sfeed}
 done
 
