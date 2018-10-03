@@ -113,7 +113,8 @@ class Utilities {
         if (project == 'coreclr') {
           shell("${dockerCommand} ./build.sh cross \${config} \${targetArch} cmakeargs -DFEATURE_GDBJIT=TRUE stripSymbols -PortableBuild=false \${buildIdOpts} -- \${stableOpts} \${packageOpts} ${authorsOpts}")
         } else if (project == 'corefx') {
-          shell("${dockerCommand} ./build.sh -\${config} -buildArch=\${targetArch} -RuntimeOS=tizen.5.0.0 -PortableBuild=false \${buildIdOpts} -- \${stableOpts} \${packageOpts} /p:BinPlaceNETCoreAppPackage=true /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts}")
+          shell("${dockerCommand} ./build-managed.sh -\${config} -buildArch=\${targetArch} -RuntimeOS=tizen.5.0.0 -PortableBuild=false \${buildIdOpts} -- \${stableOpts} \${packageOpts} /p:BinPlaceNETCoreAppPackage=true /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts}")
+          shell("${dockerCommand} ./build-native.sh -\${config} -buildArch=\${targetArch} -RuntimeOS=tizen.5.0.0 -PortableBuild=false \${buildIdOpts} -- \${stableOpts} \${packageOpts} /p:BinPlaceNETCoreAppPackage=true /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts}")
           shell("${dockerCommand} ./build-packages.sh -\${config} -ArchGroup=\${targetArch} -RuntimeOS=tizen.5.0.0 -PortableBuild=false -- ${authorsOpts}")
         } else if (project == 'core-setup') {
           shell("${dockerCommand} ./build.sh -ConfigurationGroup=\${config} -TargetArchitecture=\${targetArch} -SkipTests=true -DisableCrossgen=true -PortableBuild=false -CrossBuild=true \${buildIdOpts} -- \${stableOpts} \${packageOpts} /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts} /p:OutputRid=tizen.5.0.0-\${targetArch}")
