@@ -149,8 +149,8 @@ class Utilities {
           } else if (project == 'corefx') {
             pattern(projectDir + 'bin/packages/\${config}/*.nupkg')
           } else if (project == 'core-setup') {
-            pattern(projectDir + 'Bin/tizen.5.0.0-\${targetArch}.\${config}/packages/*.nupkg')
-            pattern(projectDir + 'Bin/tizen.5.0.0-\${targetArch}.\${config}/packages/*.tar.gz')
+            pattern(projectDir + 'bin/tizen.5.0.0-\${targetArch}.\${config}/packages/*.nupkg')
+            pattern(projectDir + 'bin/tizen.5.0.0-\${targetArch}.\${config}/packages/*.tar.gz')
           }
           onlyIfSuccessful()
         }
@@ -188,7 +188,7 @@ class Utilities {
     } else if (project == 'corefx') {
       nugetCommand = getNugetCommand(nugetMap, projectDir + 'bin/packages/\${config}')
     } else if (project == 'core-setup') {
-      nugetCommand = getNugetCommand(nugetMap, projectDir + 'Bin/tizen.5.0.0-\${targetArch}.\${config}/packages')
+      nugetCommand = getNugetCommand(nugetMap, projectDir + 'bin/tizen.5.0.0-\${targetArch}.\${config}/packages')
     }
 
     job.with {
