@@ -74,7 +74,7 @@ class Utilities {
 
           steps {
             environmentVariables {
-              env("buildIdOpts", "-OfficialBuildId=\${buildid}")
+              env("buildIdOpts", "/p:OfficialBuildId=\${buildid}")
             }
           }
         }
@@ -111,13 +111,13 @@ class Utilities {
         def authorsOpts = '/p:Authors=Tizen'
 
         if (project == 'coreclr') {
-          shell("${dockerCommand} ./build.sh cross \${config} \${targetArch} cmakeargs -DFEATURE_GDBJIT=TRUE stripSymbols -PortableBuild=false \${buildIdOpts} -- \${stableOpts} \${packageOpts} ${authorsOpts}")
+          shell("${dockerCommand} ./build.sh cross \${config} \${targetArch} cmakeargs -DFEATURE_GDBJIT=TRUE stripSymbols -PortableBuild=false -- \${buildIdOpts} \${stableOpts} \${packageOpts} ${authorsOpts}")
         } else if (project == 'corefx') {
-          shell("${dockerCommand} ./build-managed.sh -\${config} -buildArch=\${targetArch} -RuntimeOS=tizen.5.0.0 -PortableBuild=false \${buildIdOpts} -- \${stableOpts} \${packageOpts} /p:BinPlaceNETCoreAppPackage=true /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts}")
-          shell("${dockerCommand} ./build-native.sh -\${config} -buildArch=\${targetArch} -RuntimeOS=tizen.5.0.0 -PortableBuild=false \${buildIdOpts} -- \${stableOpts} \${packageOpts} /p:BinPlaceNETCoreAppPackage=true /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts}")
-          shell("${dockerCommand} ./build-packages.sh -\${config} -ArchGroup=\${targetArch} -RuntimeOS=tizen.5.0.0 -PortableBuild=false -- ${authorsOpts}")
+          // Build command for CoreFX has changed: see https://github.com/dotnet/corefx/pull/32798/files and https://github.com/dotnet/corefx/commit/66392f577c7852092f668876822b6385bcafbd44
+
+          shell("${dockerCommand} ./build.sh -\${config} /p:ArchGroup=\${targetArch} /p:RuntimeOS=tizen.5.0.0 /p:PortableBuild=false \${buildIdOpts} \${stableOpts} \${packageOpts} /p:BinPlaceNETCoreAppPackage=true /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts}")
         } else if (project == 'core-setup') {
-          shell("${dockerCommand} ./build.sh -ConfigurationGroup=\${config} -TargetArchitecture=\${targetArch} -SkipTests=true -DisableCrossgen=true -PortableBuild=false -CrossBuild=true \${buildIdOpts} -- \${stableOpts} \${packageOpts} /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts} /p:OutputRid=tizen.5.0.0-\${targetArch}")
+          shell("${dockerCommand} ./build.sh -ConfigurationGroup=\${config} -TargetArchitecture=\${targetArch} -SkipTests=true -DisableCrossgen=true -PortableBuild=false -CrossBuild=true -- \${buildIdOpts} \${stableOpts} \${packageOpts} /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts} /p:OutputRid=tizen.5.0.0-\${targetArch}")
         }
         // Change ownership to UID of the projectDir
         // Building with docker, it will be created as root with the file it downloaded
