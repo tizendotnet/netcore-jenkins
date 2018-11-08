@@ -139,7 +139,7 @@ projectLoop.each { projectName ->
   def patch = "${netcoreDir}/patches/\${patch}"
   Utilities.applyPatch(newJob, patch, projectDir)
   // Set a build steps
-  Utilities.addBuildSteps(newJob, projectName, projectDir)
+  Utilities.addBuildSteps(newJob, projectName, "2.0.0", projectDir)
   // Upload packages to the predefined myget server
   def nugetMap = [ 'feed':"${NUGET_FEED}", 'sfeed':"${NUGET_SFEED}", 'key':"${NUGET_API_KEY}" ]
   Utilities.addUploadSteps(newJob, nugetMap, projectName, projectDir)

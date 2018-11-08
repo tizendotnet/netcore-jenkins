@@ -48,7 +48,7 @@ class Utilities {
    * @param project Project name to build
    * @param projectDir (optional) Project directory to build
    */
-  def static addBuildSteps(def job, String project, String projectDir = "") {
+  def static addBuildSteps(def job, String project, String branch, String projectDir = "") {
     if (projectDir != "") {
         projectDir = "/" + projectDir
     }
@@ -108,6 +108,12 @@ class Utilities {
           }
         }
 
+        def passCI = ''
+        if (project == 'corefx' && branch == 'master') {
+          // Master uses Arcade for build and requires --ci option to be passed
+          passCI = '--ci'
+        }
+
         def authorsOpts = '/p:Authors=Tizen'
 
         if (project == 'coreclr') {
@@ -115,7 +121,7 @@ class Utilities {
         } else if (project == 'corefx') {
           // Build command for CoreFX has changed: see https://github.com/dotnet/corefx/pull/32798/files and https://github.com/dotnet/corefx/commit/66392f577c7852092f668876822b6385bcafbd44
 
-          shell("${dockerCommand} ./build.sh -\${config} /p:ArchGroup=\${targetArch} /p:RuntimeOS=tizen.5.0.0 /p:PortableBuild=false \${buildIdOpts} \${stableOpts} \${packageOpts} /p:BinPlaceNETCoreAppPackage=true /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts}")
+          shell("${dockerCommand} ./build.sh -\${config} /p:ArchGroup=\${targetArch} /p:RuntimeOS=tizen.5.0.0 /p:PortableBuild=false ${passCI} \${buildIdOpts} \${stableOpts} \${packageOpts} /p:BinPlaceNETCoreAppPackage=true /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts}")
         } else if (project == 'core-setup') {
           shell("${dockerCommand} ./build.sh -ConfigurationGroup=\${config} -TargetArchitecture=\${targetArch} -SkipTests=true -DisableCrossgen=true -PortableBuild=false -CrossBuild=true -- \${buildIdOpts} \${stableOpts} \${packageOpts} /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts} /p:OutputRid=tizen.5.0.0-\${targetArch}")
         }
