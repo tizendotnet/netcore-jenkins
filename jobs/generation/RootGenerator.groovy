@@ -136,7 +136,7 @@ projectLoop.each { projectName ->
     // Set retention policy
     Utilities.addRetentionPolicy(newJob)
     // Set a build steps
-    Utilities.addBuildSteps(newJob, projectName, projectDir)
+    Utilities.addBuildSteps(newJob, projectName, branchName, projectDir)
     // Upload packages to the predefined myget server
     def nugetMap = [ 'feed':"${NUGET_FEED}", 'sfeed':"${NUGET_SFEED}", 'key':"${NUGET_API_KEY}" ]
     Utilities.addUploadSteps(newJob, nugetMap, projectName, projectDir)
