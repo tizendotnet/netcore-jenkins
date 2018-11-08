@@ -7,6 +7,8 @@ branch=$1; shift
 convert_builddate()
 {
     local _version=$1; shift
+    local _project=$1; shift
+    local _branch=$1; shift
 
     # In case of stable, rtm or servicing release, return as is.
     if [ "${_version}" == "stable" ] || [ "${_version}" == "servicing" ] || [ "${_version}" == "rtm" ] ; then
@@ -14,20 +16,38 @@ convert_builddate()
         exit 0
     fi
 
-    IFS=- read -r branch date count <<< ${_version}
-    local month=${date::(-2)}
-    local day=${date:(-2)}
+    local new_style_version=$((0))
+    if [ "${_project}" == "corefx" ]; then
+        if [ "${_branch}" == "master" ]; then
+            new_style_version=$((1))
+        fi
+    fi
 
-    # The most significant digits represents the month count since April 1996.
-    # In the example above 249 represents Jan 2017.
-    local byear=2017
-    local bmonth=249
+    if [ "${new_style_version}" == "0" ]; then
+        # this is version in format preview1-27018-01
+        IFS=- read -r prelease date count <<< ${_version}
+        local month=${date::(-2)}
+        local day=${date:(-2)}
 
-    local diff=$(( ${month} - ${bmonth} ))
-    local diff_year=$(( ${diff} / 12 ))
-    local diff_month=$(( ${diff} % 12 ))
+        # The most significant digits represents the month count since April 1996.
+        # In the example above 249 represents Jan 2017.
+        local byear=2017
+        local bmonth=249
 
-    builddate="$(( ${byear} + ${diff_year} ))$( printf "%02d" $(( ${diff_month} + 1 )) )${day}-${count}"
+        local diff=$(( ${month} - ${bmonth} ))
+        local diff_year=$(( ${diff} / 12 ))
+        local diff_month=$(( ${diff} % 12 ))
+        builddate="$(( ${byear} + ${diff_year} ))$( printf "%02d" $(( ${diff_month} + 1 )) )${day}-${count}"
+    else
+        # this is version in format preview1.18529.8
+        # see details at https://github.com/dotnet/arcade/blob/master/Documentation/CorePackages/Versioning.md#package-version-generation
+        IFS=. read -r prelease shortdate count <<< ${_version}
+        local yy=$( printf "%02d" $(( shortdate / 1000 )) )
+        local mm=$( printf "%02d" $(( (shortdate % 1000) / 50 )) )
+        local dd=$( printf "%02d" $(( (shortdate % 1000) % 50 )) )
+        builddate="20${yy}${mm}${dd}.${count}"
+    fi
+
     echo ${builddate}
 }
 
@@ -131,7 +151,7 @@ fi
 echo "Version is changed (${version} (${sha1}) -> ${cur_version} (${commit}))"
 echo "version=${cur_version}" > "${prop_file}"
 echo "sha1=${commit}" >> "${prop_file}"
-echo "buildid=$( convert_builddate "${cur_version}" )" >> "${prop_file}"
+echo "buildid=$( convert_builddate "${cur_version}" "${project}" "${branch}" )" >> "${prop_file}"
 
 
 apache_dir=/var/www/files/
