@@ -139,9 +139,9 @@ projectLoop.each { projectName ->
     Utilities.addBuildSteps(newJob, projectName, branchName, projectDir)
     // Upload packages to the predefined myget server
     def nugetMap = [ 'feed':"${NUGET_FEED}", 'sfeed':"${NUGET_SFEED}", 'key':"${NUGET_API_KEY}" ]
-    Utilities.addUploadSteps(newJob, nugetMap, projectName, projectDir)
+    Utilities.addUploadSteps(newJob, nugetMap, projectName, branchName, projectDir)
     // Archive results
-    Utilities.addArchival(newJob, projectName, projectDir)
+    Utilities.addArchival(newJob, projectName, branchName, projectDir)
     // Set email notifications for unstable builds
     Utilities.setEmailNotification(newJob, "${EMAIL}")
   }

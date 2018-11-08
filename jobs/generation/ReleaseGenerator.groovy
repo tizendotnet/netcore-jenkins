@@ -142,9 +142,9 @@ projectLoop.each { projectName ->
   Utilities.addBuildSteps(newJob, projectName, "2.0.0", projectDir)
   // Upload packages to the predefined myget server
   def nugetMap = [ 'feed':"${NUGET_FEED}", 'sfeed':"${NUGET_SFEED}", 'key':"${NUGET_API_KEY}" ]
-  Utilities.addUploadSteps(newJob, nugetMap, projectName, projectDir)
+  Utilities.addUploadSteps(newJob, nugetMap, projectName, "2.0.0", projectDir)
   // Archive results
-  Utilities.addArchival(newJob, projectName, projectDir)
+  Utilities.addArchival(newJob, projectName, "2.0.0", projectDir)
 
 }
 

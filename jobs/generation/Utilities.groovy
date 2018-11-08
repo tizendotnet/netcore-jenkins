@@ -142,7 +142,7 @@ class Utilities {
    * @param project Project name to build
    * @param projectDir (optional) Project directory to build
    */
-  def static addArchival(def job, String project, String projectDir = "") {
+  def static addArchival(def job, String project, String branch, String projectDir = "") {
     if (projectDir != "") {
         projectDir = projectDir + '/'
     }
@@ -154,7 +154,12 @@ class Utilities {
             pattern(projectDir + 'bin/Product/Linux.\${targetArch}.\${config}/.nuget/pkg/*.nupkg')
             pattern(projectDir + 'bin/Product/Linux.\${targetArch}.\${config}/.nuget/symbolpkg/*.nupkg')
           } else if (project == 'corefx') {
-            pattern(projectDir + 'bin/packages/\${config}/*.nupkg')
+            if (branch == "master") {
+              // On latest master bin/ folder is moved to artifacts/
+              pattern(projectDir + 'artifacts/packages/\${config}/*.nupkg')
+            } else {
+              pattern(projectDir + 'bin/packages/\${config}/*.nupkg')
+            }
           } else if (project == 'core-setup') {
             pattern(projectDir + 'bin/tizen.5.0.0-\${targetArch}.\${config}/packages/*.nupkg')
             pattern(projectDir + 'bin/tizen.5.0.0-\${targetArch}.\${config}/packages/*.tar.gz')
@@ -184,7 +189,7 @@ class Utilities {
    * @param project Project name to build
    * @param projectDir (optional) Project directory to build
    */
-  def static addUploadSteps(def job, def nugetMap, String project, String projectDir = "") {
+  def static addUploadSteps(def job, def nugetMap, String project, String branch, String projectDir = "") {
     if (projectDir != "") {
         projectDir = projectDir + '/'
     }
@@ -193,7 +198,12 @@ class Utilities {
     if (project == 'coreclr') {
       nugetCommand = getNugetCommand(nugetMap, projectDir + 'bin/Product/Linux.\${targetArch}.\${config}/.nuget')
     } else if (project == 'corefx') {
-      nugetCommand = getNugetCommand(nugetMap, projectDir + 'bin/packages/\${config}')
+      if (branch == "master") {
+        // On latest master bin/ folder is moved to artifacts/
+        nugetCommand = getNugetCommand(nugetMap, projectDir + 'artifacts/packages/\${config}')
+      } else {
+        nugetCommand = getNugetCommand(nugetMap, projectDir + 'bin/packages/\${config}')
+      }
     } else if (project == 'core-setup') {
       nugetCommand = getNugetCommand(nugetMap, projectDir + 'bin/tizen.5.0.0-\${targetArch}.\${config}/packages')
     }
