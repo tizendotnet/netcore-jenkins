@@ -57,17 +57,20 @@ class Utilities {
 
     job.with {
       steps {
+
+        // see https://github.com/dotnet/corefx/pull/30825 for details of versioning
+
         conditionalSteps {
           condition {
             and {
               not {
-                stringsMatch("\${buildid}", "stable", false)
+                stringsMatch("\${version}", "stable", false)
               }
               not {
-                stringsMatch("\${buildid}", "servicing", false)
+                stringsMatch("\${version}", "servicing", false)
               }
               not {
-                stringsMatch("\${buildid}", "rtm", false)
+                stringsMatch("\${version}", "rtm", false)
               }
             }
           }
@@ -81,7 +84,7 @@ class Utilities {
 
         conditionalSteps {
           condition {
-            stringsMatch("\${buildid}", "stable", false)
+            stringsMatch("\${version}", "stable", false)
           }
 
           steps {
@@ -92,19 +95,47 @@ class Utilities {
           }
         }
 
-        conditionalSteps {
-          condition {
-            or {
-              stringsMatch("\${buildid}", "servicing", false)
-              stringsMatch("\${buildid}", "rtm", false)
+        if (project == 'corefx') {
+          conditionalSteps {
+            condition {
+              shell("echo \${version} | grep -q servicing")
+            }
+
+            steps {
+              environmentVariables {
+                env("stableOpts", "/p:StabilizePackageVersion=true")
+                env("packageOpts", "/p:PackageVersionStamp=servicing")
+              }
             }
           }
 
-          steps {
-            environmentVariables {
-              env("stableOpts", "/p:StabilizePackageVersion=true")
-              env("packageOpts", "/p:PackageVersionStamp=\${buildid}")
+          conditionalSteps {
+            condition {
+              shell("echo \${version} | grep -q rtm")
             }
+
+            steps {
+              environmentVariables {
+                env("stableOpts", "/p:StabilizePackageVersion=true")
+                env("packageOpts", "/p:PackageVersionStamp=rtm")
+              }
+            }
+          }
+        } else {
+          conditionalSteps {
+            condition {
+              or {
+                stringsMatch("\${version}", "servicing", false)
+                stringsMatch("\${version}", "rtm", false)
+              }
+            }
+
+            steps {
+              environmentVariables {
+                env("stableOpts", "/p:StabilizePackageVersion=true")
+                env("packageOpts", "/p:PackageVersionStamp=\${buildid}")
+              }
+           }
           }
         }
 
