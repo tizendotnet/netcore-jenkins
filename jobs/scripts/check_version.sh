@@ -79,12 +79,15 @@ pkglist=( "coreclr:Microsoft.NETCore.Runtime.CoreCLR:version.txt"
 versionlist=( "coreclr:master"
               "coreclr:release/2.0.0"
               "coreclr:release/2.1"
+              "coreclr:release/2.2"
               "corefx:master"
               "corefx:release/2.0.0"
               "corefx:release/2.1"
+              "corefx:release/2.2"
               "core-setup:master"
               "core-setup:release/2.0.0"
               "core-setup:release/2.1"
+              "core-setup:release/2.2"
             )
 
 for list in ${pkglist[@]}; do
