@@ -1,0 +1,147 @@
+From ac615fac6a06747d617d6a95c2d6b2fc5933b65a Mon Sep 17 00:00:00 2001
+From: Konstantin Baladurin <k.baladurin@samsung.com>
+Date: Thu, 23 May 2019 13:04:56 +0300
+Subject: [PATCH] Fix test build on Linux
+
+---
+ ilasm.depproj                          | 48 ++++++++++++++++++++++++++
+ tests/src/CLRTest.Execute.Bash.targets | 10 ++----
+ tests/src/CLRTest.Execute.targets      |  2 +-
+ tests/src/IL.targets                   |  6 ++--
+ 4 files changed, 55 insertions(+), 11 deletions(-)
+ create mode 100644 ilasm.depproj
+
+diff --git a/ilasm.depproj b/ilasm.depproj
+new file mode 100644
+index 0000000000..feb798ad96
+--- /dev/null
++++ b/ilasm.depproj
+@@ -0,0 +1,48 @@
++﻿<?xml version="1.0" encoding="utf-8"?>
++<Project ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" DefaultTargets="Build">
++  <Import Project="dir.props" />
++
++  <PropertyGroup>
++    <NuGetTargetMoniker>.NETCoreApp,Version=v2.0</NuGetTargetMoniker>
++    <NuGetTargetMonikerShort>netcoreapp2.0</NuGetTargetMonikerShort>
++    <TargetFramework>netcoreapp2.0</TargetFramework>
++    <RuntimeOS>ubuntu.14.04</RuntimeOS>
++  </PropertyGroup>
++
++  <PropertyGroup>
++    <IntermediateOutputPath>$(IntermediateOutputPath)$(OSGroup)-$(ArchGroup)/</IntermediateOutputPath>
++    <RuntimeOS Condition="'$(PortableBuild)' == 'true' and '$(OSGroup)' == 'Windows_NT'">win</RuntimeOS>
++    <RuntimeOS Condition="'$(PortableBuild)' == 'true' and '$(OSGroup)' == 'OSX'">osx</RuntimeOS>
++    <RuntimeOS Condition="'$(PortableBuild)' == 'true' and '$(OSGroup)' == 'Linux'">linux</RuntimeOS>
++    <NugetRuntimeIdentifier>$(RuntimeOS)-$(ArchGroup)</NugetRuntimeIdentifier>
++    <ContainsPackageReferences>true</ContainsPackageReferences>
++    <!-- We need configuration-specific assets files. -->
++    <RestoreOutputPath>$(IntermediateOutputPath)</RestoreOutputPath>
++  </PropertyGroup>
++
++  <PropertyGroup>
++    <!-- Always restore the x64 assets. These are build-only assets, so they should match the environment of the build. -->
++    <NugetRuntimeIdentifier>$(RuntimeOS)-x64</NugetRuntimeIdentifier>
++    <!-- Tizen does not provide the x64 runtime so replaces it with the ubuntu.14.04-x64 -->
++    <NugetRuntimeIdentifier Condition="'$(RuntimeOS)' == 'tizen.4.0.0'">ubuntu.14.04-x64</NugetRuntimeIdentifier>
++    <OutputPath>$(ToolsDir)ilasm</OutputPath>
++    <EnableBinPlacing>false</EnableBinPlacing>
++    <RidSpecificAssets>true</RidSpecificAssets>
++  </PropertyGroup>
++  <ItemGroup>
++    <PackageReference Include="Microsoft.NETCore.Platforms">
++      <Version>$(MicrosoftNETCorePlatformsPackageVersion)</Version>
++    </PackageReference>
++    <PackageReference Include="Microsoft.NETCore.Runtime.CoreCLR">
++      <Version>$(MicrosoftNETCoreRuntimeCoreCLRPackageVersion)</Version>
++    </PackageReference>
++    <PackageReference Include="Microsoft.NETCore.ILAsm">
++      <Version>$(MicrosoftNETCoreRuntimeCoreCLRPackageVersion)</Version>
++    </PackageReference>
++  </ItemGroup>
++  <Import Project="$([MSBuild]::GetDirectoryNameOfFileAbove($(MSBuildThisFileDirectory), dir.targets))\dir.targets" />
++  <!-- Executables restored with .NET Core 2.0 do not have executable permission flags. https://github.com/NuGet/Home/issues/4424 -->
++  <Target Name="MakeIlasmExecutable" AfterTargets="CopyFilesToOutputDirectory" Condition="'$(RunningOnUnix)' == 'true'">
++    <Exec Command="chmod +x $(OutputPath)ilasm" />
++  </Target>
++</Project>
+diff --git a/tests/src/CLRTest.Execute.Bash.targets b/tests/src/CLRTest.Execute.Bash.targets
+index 1ce7b845ee..9fcb6fca4b 100644
+--- a/tests/src/CLRTest.Execute.Bash.targets
++++ b/tests/src/CLRTest.Execute.Bash.targets
+@@ -83,7 +83,7 @@ fi
+       ]]></BashCLRTestEnvironmentCompatibilityCheck>
+       <BashCLRTestEnvironmentCompatibilityCheck Condition="'$(JitOptimizationSensitive)' == 'true'"><![CDATA[
+ $(BashCLRTestEnvironmentCompatibilityCheck)
+-if [ \( ! -z "$COMPlus_JitStress" \) -o \( ! -z "$COMPlus_JitStressRegs" \) -o \( ! -z "$COMPlus_JITMinOpts" \) -o \( ! -z "$COMPlus_TailcallStress" \) ]
++if [[ ( ! -z "$COMPlus_JitStress" ) || ( ! -z "$COMPlus_JitStressRegs" ) || ( ! -z "$COMPlus_JITMinOpts" ) || ( ! -z "$COMPlus_TailcallStress" ) ]]
+ then
+   echo "SKIPPING EXECUTION BECAUSE ONE OR MORE OF (COMPlus_JitStress, COMPlus_JitStressRegs, COMPlus_JITMinOpts, COMPlus_TailcallStress) IS SET"
+   exit $(GCBashScriptExitCode)
+@@ -133,7 +133,7 @@ fi
+         <Command><![CDATA[        export _DebuggerFullPath="${i#*=}"
+         if [ ! -f "$_DebuggerFullPath" ]
+         then
+-            echo The Debugger FullPath \"$_DebuggerFullPath\" doesn\'t exist
++            echo "The Debugger FullPath %5C%22${_DebuggerFullPath}%5C%22 doesn\'t exist"
+             usage
+         fi]]></Command>
+         <Description>Run testcases under debugger.</Description>
+@@ -296,10 +296,6 @@ CLRTestExpectedExitCode=0
+     <!-- Raise an error if any value in _RequiredProperties is missing  -->
+     <Error Condition=" '%(_RequiredProperties.Value)'=='' "
+       Text="Missing required test property [%(_RequiredProperties.Identity)]. Something isn't plumbed through correctly.  Contact $(_CLRTestBuildSystemOwner)." />
+-      <!-- TODO: this is weird.  Consider eliminating it. -->
+-    <GenerateParamList ArgumentItems="@(BashCLRTestExecutionScriptArgument)">
+-      <Output TaskParameter="ParamList" PropertyName="_CLRTestParamList"/>
+-    </GenerateParamList>
+     <PropertyGroup>
+       <!--
+       This generates the script portion to parse all of the command line arguments.
+@@ -400,4 +396,4 @@ $(BashCLRTestExitCodeCheck)
+       Overwrite="true" />
+   </Target>
+   
+-</Project>
+\ No newline at end of file
++</Project>
+diff --git a/tests/src/CLRTest.Execute.targets b/tests/src/CLRTest.Execute.targets
+index b49785b9d6..50860ea529 100644
+--- a/tests/src/CLRTest.Execute.targets
++++ b/tests/src/CLRTest.Execute.targets
+@@ -96,7 +96,7 @@ This file contains the logic for providing Execution Script generation.
+   -->
+   
+   <ItemGroup>
+-    <ExecutionScriptKind Include="Batch" />
++    <ExecutionScriptKind Include="Batch" Condition="'$(BuildOS)' == 'Windows_NT'"/>
+     <ExecutionScriptKind Include="Bash" />
+   </ItemGroup>
+ 
+diff --git a/tests/src/IL.targets b/tests/src/IL.targets
+index 36cff53035..611fb992ed 100644
+--- a/tests/src/IL.targets
++++ b/tests/src/IL.targets
+@@ -11,8 +11,8 @@
+           Returns=""
+           DependsOnTargets="$(CoreCompileDependsOn)">
+     <PropertyGroup>
+-      <_OutputTypeArgument Condition="'$(OutputType)' == 'Library'">/DLL</_OutputTypeArgument>
+-      <_OutputTypeArgument Condition="'$(OutputType)' == 'Exe'">/EXE</_OutputTypeArgument>
++      <_OutputTypeArgument Condition="'$(OutputType)' == 'Library'">-DLL</_OutputTypeArgument>
++      <_OutputTypeArgument Condition="'$(OutputType)' == 'Exe'">-EXE</_OutputTypeArgument>
+       <_IlasmSwitches>-QUIET -NOLOGO</_IlasmSwitches>
+       <_IlasmSwitches Condition="'$(FoldIdenticalMethods)' == 'True'">$(_IlasmSwitches) -FOLD</_IlasmSwitches>
+       <_IlasmSwitches Condition="'$(SizeOfStackReserve)' != ''">$(_IlasmSwitches) -STACK=$(SizeOfStackReserve)</_IlasmSwitches>
+@@ -22,7 +22,7 @@
+       <_IlasmSwitches Condition="'$(Optimize)' == 'True'">$(_IlasmSwitches) -OPTIMIZE</_IlasmSwitches>
+     </PropertyGroup>
+ 
+-    <Exec Command="ilasm $(_OutputTypeArgument) /OUTPUT=@(IntermediateAssembly) $(_IlasmSwitches) @(Compile)">
++    <Exec Command="$(ToolsDir)ilasm/ilasm $(_OutputTypeArgument) -OUTPUT=@(IntermediateAssembly) $(_IlasmSwitches) @(Compile)">
+       <Output TaskParameter="ExitCode" PropertyName="_ILAsmExitCode" />
+     </Exec>
+     <Error Text="ILAsm failed" Condition="'$(_ILAsmExitCode)' != '0'" />
+-- 
+2.17.1
+
