@@ -26,18 +26,47 @@ class Utilities {
     return getFolderName("${project}_${branch}_${targetArch}_${config}")
   }
 
+  def private static String getDockerImage(String branch) {
+    switch (branch) {
+      case 'release/2.0.0':
+        return 'hqueue/dotnetcore:ubuntu1404_cross_prereqs_v4-tizen_rootfs'
+      case 'release/2.1':
+      case 'release/2.2':
+        return 'tizendotnet/dotnet-buildtools-prereqs:ubuntu-16.04-cross-e435274-20180426002255-tizen-rootfs-5.0m1'
+      case 'release/3.0':
+      case 'master':
+        return 'tizendotnet/dotnet-buildtools-prereqs:ubuntu-16.04-cross-10fcdcf-20190208200917-tizen-rootfs-5.0m2'
+      default:
+        assert false : "Unknown branch: '${branch}'"
+        break
+    }
+  }
+
+  def private static String getTizenVersion(String branch) {
+    switch (branch) {
+      case 'release/2.0.0':
+        return 'tizen.4.0.0'
+      case 'release/2.1':
+      case 'release/2.2':
+      case 'release/3.0':
+      case 'master':
+        return 'tizen.5.0.0'
+      default:
+        assert false : "Unknown branch: '${branch}'"
+        break
+    }
+  }
+
   /**
    * Get the docker command.
    *
    * @param projectDir (optional) Project directory to work
    * @return Docker command
    */
-  def static getDockerCommand(String projectDir = "") {
-    def repository = "tizendotnet/dotnet-buildtools-prereqs"
-    def container = "ubuntu-16.04-cross-e435274-20180426002255-tizen-rootfs-5.0m1"
+  def static getDockerCommand(String branch, String projectDir = "") {
     def workingDirectory = "/opt/code"
     def environment = "-e ROOTFS_DIR=/crossrootfs/\${targetArch}.tizen.build"
-    def command = "docker run --rm -v \${WORKSPACE}${projectDir}:${workingDirectory} -w=${workingDirectory} ${environment} ${repository}:${container}"
+    def command = "docker run --rm -v \${WORKSPACE}${projectDir}:${workingDirectory} -w=${workingDirectory} ${environment} ${getDockerImage(branch)}"
     return command
   }
 
@@ -53,7 +82,7 @@ class Utilities {
         projectDir = "/" + projectDir
     }
 
-    def dockerCommand = getDockerCommand(projectDir)
+    def dockerCommand = getDockerCommand(branch, projectDir)
 
     job.with {
       steps {
@@ -66,9 +95,13 @@ class Utilities {
               not {
                 stringsMatch("\${version}", "stable", false)
               }
+            }
+            {
               not {
                 stringsMatch("\${version}", "servicing", false)
               }
+            }
+            {
               not {
                 stringsMatch("\${version}", "rtm", false)
               }
@@ -140,7 +173,7 @@ class Utilities {
         }
 
         def passCI = ''
-        if (project == 'corefx' && branch == 'master') {
+        if (project == 'corefx' && (branch == 'master' || branch == 'release/3.0')) {
           // Master uses Arcade for build and requires --ci option to be passed
           passCI = '--ci'
         }
@@ -148,19 +181,19 @@ class Utilities {
         def authorsOpts = '/p:Authors=Tizen'
 
         if (project == 'coreclr') {
-          shell("${dockerCommand} ./build.sh cross \${config} \${targetArch} cmakeargs -DFEATURE_GDBJIT=TRUE stripSymbols -PortableBuild=false -- \${buildIdOpts} \${stableOpts} \${packageOpts} ${authorsOpts}")
+          shell("${dockerCommand} ./build.sh cross \${config} \${targetArch} cmakeargs -DFEATURE_GDBJIT=TRUE cmakeargs -DFEATURE_PREJIT=TRUE cmakeargs -DFEATURE_NGEN_RELOCS_OPTIMIZATIONS=TRUE stripSymbols -PortableBuild=false -- \${buildIdOpts} \${stableOpts} \${packageOpts} ${authorsOpts}")
         } else if (project == 'corefx') {
-          if (branch == 'master') {
+          if (branch == 'master' || branch == 'release/3.0') {
             // Build command for CoreFX has changed: see https://github.com/dotnet/corefx/pull/32798/files and https://github.com/dotnet/corefx/commit/66392f577c7852092f668876822b6385bcafbd44
 
-            shell("${dockerCommand} ./build.sh -\${config} /p:ArchGroup=\${targetArch} /p:RuntimeOS=tizen.5.0.0 /p:PortableBuild=false ${passCI} \${buildIdOpts} \${stableOpts} \${packageOpts} /p:BinPlaceNETCoreAppPackage=true /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts}")
+            shell("${dockerCommand} ./build.sh --configuration \${config} /p:ArchGroup=\${targetArch} /p:RuntimeOS=${getTizenVersion(branch)} /p:PortableBuild=false ${passCI} \${buildIdOpts} \${stableOpts} \${packageOpts} /p:BinPlaceNETCoreAppPackage=true /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts}")
           } else {
-            shell("${dockerCommand} ./build-managed.sh -\${config} -buildArch=\${targetArch} -RuntimeOS=tizen.5.0.0 -PortableBuild=false -- \${buildIdOpts} \${stableOpts} \${packageOpts} /p:BinPlaceNETCoreAppPackage=true /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts}")
-            shell("${dockerCommand} ./build-native.sh -\${config} -buildArch=\${targetArch} -RuntimeOS=tizen.5.0.0 -PortableBuild=false -- \${buildIdOpts} \${stableOpts} \${packageOpts} /p:BinPlaceNETCoreAppPackage=true /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts}")
-            shell("${dockerCommand} ./build-packages.sh -\${config} -ArchGroup=\${targetArch} -RuntimeOS=tizen.5.0.0 -PortableBuild=false -- ${authorsOpts}")
+            shell("${dockerCommand} ./build-managed.sh -\${config} -buildArch=\${targetArch} -RuntimeOS=${getTizenVersion(branch)} -PortableBuild=false -- \${buildIdOpts} \${stableOpts} \${packageOpts} /p:BinPlaceNETCoreAppPackage=true /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts}")
+            shell("${dockerCommand} ./build-native.sh -\${config} -buildArch=\${targetArch} -RuntimeOS=${getTizenVersion(branch)} -PortableBuild=false -- \${buildIdOpts} \${stableOpts} \${packageOpts} /p:BinPlaceNETCoreAppPackage=true /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts}")
+            shell("${dockerCommand} ./build-packages.sh -\${config} -ArchGroup=\${targetArch} -RuntimeOS=${getTizenVersion(branch)} -PortableBuild=false -- ${authorsOpts}")
           }
         } else if (project == 'core-setup') {
-          shell("${dockerCommand} ./build.sh -ConfigurationGroup=\${config} -TargetArchitecture=\${targetArch} -SkipTests=true -DisableCrossgen=true -PortableBuild=false -CrossBuild=true -- \${buildIdOpts} \${stableOpts} \${packageOpts} /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts} /p:OutputRid=tizen.5.0.0-\${targetArch}")
+          shell("${dockerCommand} ./build.sh -ConfigurationGroup=\${config} -TargetArchitecture=\${targetArch} -SkipTests=true -DisableCrossgen=true -PortableBuild=false -CrossBuild=true -- \${buildIdOpts} \${stableOpts} \${packageOpts} /p:OverridePackageSource=https:%2F%2Ftizen.myget.org/F/dotnet-core/api/v3/index.json ${authorsOpts} /p:OutputRid=${getTizenVersion(branch)}-\${targetArch}")
         }
         // Change ownership to UID of the projectDir
         // Building with docker, it will be created as root with the file it downloaded
@@ -191,19 +224,19 @@ class Utilities {
             pattern(projectDir + 'bin/Product/Linux.\${targetArch}.\${config}/.nuget/pkg/*.nupkg')
             pattern(projectDir + 'bin/Product/Linux.\${targetArch}.\${config}/.nuget/symbolpkg/*.nupkg')
           } else if (project == 'corefx') {
-            if (branch == "master") {
+            if (branch == "master" || branch == "release/3.0") {
               // On latest master bin/ folder is moved to artifacts/
               pattern(projectDir + 'artifacts/packages/\${config}/*.nupkg')
             } else {
               pattern(projectDir + 'bin/packages/\${config}/*.nupkg')
             }
           } else if (project == 'core-setup') {
-            if (branch == 'master') {
-              pattern(projectDir + 'bin/tizen.5.0.0-\${targetArch}.\${config}/packages/*.nupkg')
-              pattern(projectDir + 'bin/tizen.5.0.0-\${targetArch}.\${config}/packages/*.tar.gz')
+            if (branch == 'master' || branch == 'release/3.0') {
+              pattern(projectDir + "bin/${getTizenVersion(branch)}-\${targetArch}.\${config}/packages/*.nupkg")
+              pattern(projectDir + "bin/${getTizenVersion(branch)}-\${targetArch}.\${config}/packages/*.tar.gz")
             } else {
-              pattern(projectDir + 'Bin/tizen.5.0.0-\${targetArch}.\${config}/packages/*.nupkg')
-              pattern(projectDir + 'Bin/tizen.5.0.0-\${targetArch}.\${config}/packages/*.tar.gz')
+              pattern(projectDir + "Bin/${getTizenVersion(branch)}-\${targetArch}.\${config}/packages/*.nupkg")
+              pattern(projectDir + "Bin/${getTizenVersion(branch)}-\${targetArch}.\${config}/packages/*.tar.gz")
             }
           }
           onlyIfSuccessful()
@@ -240,17 +273,17 @@ class Utilities {
     if (project == 'coreclr') {
       nugetCommand = getNugetCommand(nugetMap, projectDir + 'bin/Product/Linux.\${targetArch}.\${config}/.nuget')
     } else if (project == 'corefx') {
-      if (branch == "master") {
+      if (branch == "master" || branch == "release/3.0") {
         // On latest master bin/ folder is moved to artifacts/
         nugetCommand = getNugetCommand(nugetMap, projectDir + 'artifacts/packages/\${config}')
       } else {
         nugetCommand = getNugetCommand(nugetMap, projectDir + 'bin/packages/\${config}')
       }
     } else if (project == 'core-setup') {
-      if (branch == 'master') {
-        nugetCommand = getNugetCommand(nugetMap, projectDir + 'bin/tizen.5.0.0-\${targetArch}.\${config}/packages')
+      if (branch == 'master' || branch == 'release/3.0') {
+        nugetCommand = getNugetCommand(nugetMap, projectDir + "bin/${getTizenVersion(branch)}-\${targetArch}.\${config}/packages")
       } else {
-        nugetCommand = getNugetCommand(nugetMap, projectDir + 'Bin/tizen.5.0.0-\${targetArch}.\${config}/packages')
+        nugetCommand = getNugetCommand(nugetMap, projectDir + "Bin/${getTizenVersion(branch)}-\${targetArch}.\${config}/packages")
       }
     }
 
