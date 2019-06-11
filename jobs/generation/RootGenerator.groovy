@@ -7,17 +7,20 @@ def branchLoop = [ 'coreclr' :
                   [ 'master',
                     'release/2.0.0',
                     'release/2.1',
-                    'release/2.2' ],
+                    'release/2.2',
+                    'release/3.0' ],
                    'corefx' :
                   [ 'master',
                     'release/2.0.0',
                     'release/2.1',
-                    'release/2.2' ],
+                    'release/2.2',
+                    'release/3.0' ],
                    'core-setup' :
                   [ 'master',
                     'release/2.0.0',
                     'release/2.1',
-                    'release/2.2' ]
+                    'release/2.2',
+                    'release/3.0' ]
                   ]
 def config = 'Release'
 def targetArch = 'armel'

@@ -17,8 +17,8 @@ convert_builddate()
     fi
 
     local new_style_version=$((0))
-    if [ "${_project}" == "corefx" ]; then
-        if [ "${_branch}" == "master" ]; then
+    if [[ "${_project}" == "corefx" || "${_project}" == "coreclr" ]]; then
+        if [[ "${_branch}" == "master" || "${_branch}" == "release/3.0" ]]; then
             new_style_version=$((1))
         fi
     fi
@@ -74,20 +74,23 @@ fi
 
 pkglist=( "coreclr:Microsoft.NETCore.Runtime.CoreCLR:version.txt"
           "corefx:Microsoft.Private.CoreFx.NETCoreApp:version.txt"
-          "core-setup:Microsoft.NETCore.App:Microsoft.NETCore.App.versions.txt"
+          "core-setup:Microsoft.NETCore.App:Microsoft.NETCore.App.nuspec"
         )
 versionlist=( "coreclr:master"
               "coreclr:release/2.0.0"
               "coreclr:release/2.1"
               "coreclr:release/2.2"
+              "coreclr:release/3.0"
               "corefx:master"
               "corefx:release/2.0.0"
               "corefx:release/2.1"
               "corefx:release/2.2"
+              "corefx:release/3.0"
               "core-setup:master"
               "core-setup:release/2.0.0"
               "core-setup:release/2.1"
               "core-setup:release/2.2"
+              "core-setup:release/3.0"
             )
 
 for list in ${pkglist[@]}; do
@@ -111,16 +114,31 @@ for list in ${versionlist[@]}; do
 done
 
 nupkg_name="${pkgname}.${fullversion}.nupkg"
-feedlist=( "https://www.nuget.org/api/v2/package"
+feedlistv2=( "https://www.nuget.org/api/v2/package"
            "https://dotnet.myget.org/F/dotnet-core/api/v2/package"
          )
 
-for feed in ${feedlist[@]}; do
+downloaded=false
+
+for feed in ${feedlistv2[@]}; do
     wget -q -O ${nupkg_name} ${feed}/${pkgname}/${fullversion}
     if [[ $? == 0 ]]; then
+        downloaded=true
         break
     fi
 done
+
+if [[ $downloaded == false ]]; then
+    feedlist=("https://dotnetfeed.blob.core.windows.net/dotnet-coreclr/flatcontainer"
+            "https://dotnetfeed.blob.core.windows.net/dotnet-core/flatcontainer")
+
+    for feed in ${feedlist[@]}; do
+        wget -q -O ${nupkg_name} ${feed}/${pkgname,,}/${fullversion,,}/${nupkg_name,,}
+        if [[ $? == 0 ]]; then
+            break
+        fi
+    done
+fi
 
 temp_dir="tmp"
 if [ -d ${temp_dir} ]; then
@@ -137,11 +155,7 @@ fi
 chmod +r ${temp_dir}/${version_file}
 
 if [ "${project}" == "core-setup" ]; then
-    while read line; do
-        if [[ "${line}" =~ "core-setup" ]]; then
-            commit=${line##* }
-        fi
-    done < "${temp_dir}/${version_file}"
+    commit=$( cat "${temp_dir}/${version_file}" | sed -n 's/.*\([0-9a-f]\{40\}\).*/\1/p' )
 else
     commit=$( cat "${temp_dir}/${version_file}" )
 fi
@@ -157,8 +171,8 @@ echo "sha1=${commit}" >> "${prop_file}"
 echo "buildid=$( convert_builddate "${cur_version}" "${project}" "${branch}" )" >> "${prop_file}"
 
 
-apache_dir=/var/www/files/
-version_dir=${apache_dir}/version-info/${project}/${branch}
+jenkins_dir=/var/jenkins_home
+version_dir=${jenkins_dir}/version-info/${project}/${branch}
 
 mkdir -p ${version_dir}
 cp ${prop_file} ${version_dir}/${cur_version}.properties
