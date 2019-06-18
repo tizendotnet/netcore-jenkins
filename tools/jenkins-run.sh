@@ -7,7 +7,9 @@ usage()
 }
 
 __name="dotnet-tizen-jenkins"
-__home=
+# As we need to run docker inside jenkins docker container path to jenkins home on host and in container
+# should be the same.
+__home="/var/jenkins_home"
 
 for i in "$@"
 do
@@ -43,7 +45,7 @@ if [[ ${N_TOTAL_CONTAINER} -ne 0 ]]; then
     exit
 fi
 
-DOCKER_OPT=()
+DOCKER_OPT=("-v" "/var/run/docker.sock:/var/run/docker.sock")
 
 if [[ -z "${__home}" ]]; then
     DOCKER_OPT+=("-v" "/var/jenkins_home")
@@ -52,4 +54,4 @@ else
     DOCKER_OPT+=("-v" "${__home}:/var/jenkins_home")
 fi
 
-docker run -d --name ${__name} -p 8080:8080 -p 50000:50000 ${DOCKER_OPT[@]} jenkins
+docker run -d --group-add $(getent group docker | awk -F: '{print $3}') --name ${__name} -p 8080:8080 -p 50000:50000 ${DOCKER_OPT[@]} jenkins
