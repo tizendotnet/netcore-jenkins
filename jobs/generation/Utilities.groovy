@@ -159,6 +159,8 @@ class Utilities {
             condition {
               or {
                 stringsMatch("\${version}", "servicing", false)
+              }
+              {
                 stringsMatch("\${version}", "rtm", false)
               }
             }
@@ -177,11 +179,14 @@ class Utilities {
           // Master uses Arcade for build and requires --ci option to be passed
           passCI = '--ci'
         }
+        else if (project == 'coreclr' && (branch == 'master' || branch == 'release/3.0')) {
+          passCI = '/p:ContinuousIntegrationBuild=true'
+        }
 
         def authorsOpts = '/p:Authors=Tizen'
 
         if (project == 'coreclr') {
-          shell("${dockerCommand} ./build.sh cross \${config} \${targetArch} cmakeargs -DFEATURE_GDBJIT=TRUE cmakeargs -DFEATURE_PREJIT=TRUE cmakeargs -DFEATURE_NGEN_RELOCS_OPTIMIZATIONS=TRUE stripSymbols -PortableBuild=false -- \${buildIdOpts} \${stableOpts} \${packageOpts} ${authorsOpts}")
+          shell("${dockerCommand} ./build.sh cross \${config} \${targetArch} cmakeargs -DFEATURE_GDBJIT=TRUE cmakeargs -DFEATURE_PREJIT=TRUE cmakeargs -DFEATURE_NGEN_RELOCS_OPTIMIZATIONS=TRUE stripSymbols -PortableBuild=false -- \${buildIdOpts} \${stableOpts} \${packageOpts} ${authorsOpts} ${passCI}")
         } else if (project == 'corefx') {
           if (branch == 'master' || branch == 'release/3.0') {
             // Build command for CoreFX has changed: see https://github.com/dotnet/corefx/pull/32798/files and https://github.com/dotnet/corefx/commit/66392f577c7852092f668876822b6385bcafbd44
