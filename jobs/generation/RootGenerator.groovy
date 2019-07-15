@@ -137,6 +137,23 @@ projectLoop.each { projectName ->
       steps {
         buildDescription('',"[INFO] \${version}(\${buildid})")
       }
+
+      publishers {
+        postBuildScripts {
+            steps {
+                shell("sudo chown \$( id -u \${USER} ):\$( id -u \${USER} ) ${projectDir} -R")
+            }
+            onlyIfBuildSucceeds(false)
+            onlyIfBuildFails()
+        }
+        wsCleanup {
+          cleanWhenFailure(true)
+          cleanWhenAborted(true)
+          cleanWhenUnstable(true)
+          includePattern('**/*')
+          deleteDirectories(true)
+        }
+      }
     }
 
     // Set retention policy
