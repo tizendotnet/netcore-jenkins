@@ -280,12 +280,6 @@ class Utilities {
           deleteDirectories(true)
         }
       }
-
-      if (isPR) {
-        steps {
-          buildDescription('',"[INFO] PR #\${ghprbPullId}")
-        }
-      }
     }
 
     Utilities.setJobTimeout(job, 120)
