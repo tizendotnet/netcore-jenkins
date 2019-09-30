@@ -25,6 +25,8 @@ if [ ! -d ${_dir} ]; then
     download
 fi
 
+overall_exit_code=$((0))
+
 nuget_push() {
     local max_count=$((2))
     local counter=$((0))
@@ -44,6 +46,7 @@ nuget_push() {
 
     if [ $exit_code -ne 0 ]; then
         echo "Unable to push package ${1}, tried $max_count times"
+        overall_exit_code=$((1))
     fi
 }
 
@@ -55,3 +58,4 @@ for nupkg in $( find ${nupkg_dir} -iname "*.symbols.nupkg" -not -iname "Microsof
     nuget_push ${nupkg} ${sfeed}
 done
 
+exit ${overall_exit_code}
